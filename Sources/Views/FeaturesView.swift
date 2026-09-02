@@ -26,14 +26,25 @@ struct TweakCard: View {
 
     private var isDisabled: Bool { model.isDisabled(tweak) }
 
-    /// Non modifiable ici : repose sur l'arrêt d'un agent Apple, refusé tant que
-    /// SIP est activé. La carte est grisée et l'interrupteur désactivé.
-    private var sipBlocked: Bool { tweak.requiresSIPDisabled && SIP.enabled }
+    /// Drapeau posé, mais des processus tournent quand même : macOS les réveille
+    /// à la demande malgré le drapeau, et SIP interdit de les arrêter. Un
+    /// redémarrage n'y change rien — on le signale sans jamais bloquer l'action.
+    private var stillRunningDespiteFlag: Bool {
+        (model.itemStates[tweak.id] ?? []).contains(where: \.stillRunning)
+    }
+    /// Réglage encore actif dont la part « agents » restera sans effet tant que
+    /// SIP est activé.
+    private var willBeLimited: Bool { !isDisabled && tweak.limitedBySIP }
+    /// « Effet partiel » quand une préférence coupe quand même la fonction,
+    /// « SIP requis » quand la fiche n'agit que sur des agents.
+    private var limitChipKey: String {
+        tweak.hasFunctionalSwitch ? "feat.partial.chip" : "feat.reboot.chip"
+    }
 
-    /// Bordure : rouge si désactivé, ambre si bloqué par SIP, neutre sinon.
+    /// Bordure : rouge si désactivé et effectif, ambre si l'effet est bridé par SIP.
     private var borderColor: Color {
+        if stillRunningDespiteFlag { return MTColor.ambre.opacity(0.45) }
         if isDisabled { return MTColor.rouge.opacity(0.30) }
-        if sipBlocked { return MTColor.ambre.opacity(0.30) }
         return MTColor.ligne
     }
 
@@ -55,7 +66,7 @@ struct TweakCard: View {
                 .toggleStyle(.switch)
                 .controlSize(.mini)
                 .labelsHidden()
-                .disabled(model.busy || sipBlocked)
+                .disabled(model.busy)
             }
             Text(tweak.name.current)
                 .font(.subheadline.weight(.semibold))
@@ -68,17 +79,18 @@ struct TweakCard: View {
                 if tweak.needsAdmin {
                     Image(systemName: "lock.fill").font(.system(size: 9)).foregroundStyle(.purple)
                 }
-                if sipBlocked {
+                if willBeLimited {
                     Image(systemName: "lock.shield.fill")
                         .font(.system(size: 9)).foregroundStyle(MTColor.ambre)
                 }
                 Spacer(minLength: 0)
-                if isDisabled {
+                if stillRunningDespiteFlag {
+                    Text(loc.t(limitChipKey))
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(tweak.hasFunctionalSwitch ? MTColor.bleu : MTColor.ambre)
+                } else if isDisabled {
                     Text(loc.t("common.disabled"))
                         .font(.system(size: 10, weight: .semibold)).foregroundStyle(MTColor.rouge)
-                } else if sipBlocked {
-                    Text(loc.t("feat.sip.chip"))
-                        .font(.system(size: 10, weight: .semibold)).foregroundStyle(MTColor.ambre)
                 } else if let u = model.tweakUsage[tweak.id], u.procs > 0 {
                     Text(humanBytes(u.rssBytes))
                         .font(.system(size: 10, design: .monospaced)).foregroundStyle(MTColor.bleu)
@@ -91,8 +103,6 @@ struct TweakCard: View {
         .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(MTColor.carte))
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
             .stroke(borderColor, lineWidth: 1))
-        // Grisé quand SIP rend le réglage inopérant (mais la fiche reste consultable).
-        .opacity(sipBlocked ? 0.55 : 1)
         .contentShape(Rectangle())
         .onTapGesture { model.detailTweak = tweak }
         .animation(.easeInOut(duration: 0.2), value: isDisabled)
@@ -107,8 +117,16 @@ struct TweakDetailSheet: View {
     @EnvironmentObject var loc: L10n
 
     private var isDisabled: Bool { model.isDisabled(tweak) }
-    private var sipBlocked: Bool { tweak.requiresSIPDisabled && SIP.enabled }
     private var items: [DetailItem] { model.itemStates[tweak.id] ?? [] }
+    /// Drapeau posé, processus quand même relancé à la demande par macOS.
+    /// SIP refuse `bootout` : ni le drapeau ni un redémarrage ne l'arrêteront.
+    private var stillRunningDespiteFlag: Bool { items.contains(where: \.stillRunning) }
+    /// Encore actif, et dont la part « agents » restera sans effet sous SIP.
+    private var willBeLimited: Bool { !isDisabled && tweak.limitedBySIP }
+    /// Même distinction que sur la carte : partiel si une préférence agit malgré tout.
+    private var limitChipKey: String {
+        tweak.hasFunctionalSwitch ? "feat.partial.chip" : "feat.reboot.chip"
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -117,7 +135,10 @@ struct TweakDetailSheet: View {
                 Text(tweak.name.current).font(.title3.weight(.semibold))
                 chip(tweak.risk.label.current, tweak.risk.color)
                 if tweak.needsAdmin { chip(loc.t("common.admin"), .purple) }
-                if sipBlocked { chip(loc.t("feat.sip.chip"), MTColor.ambre) }
+                if stillRunningDespiteFlag || willBeLimited {
+                    chip(loc.t(limitChipKey),
+                         tweak.hasFunctionalSwitch ? MTColor.bleu : MTColor.ambre)
+                }
                 Spacer()
                 Toggle("", isOn: Binding(
                     get: { !isDisabled },
@@ -128,13 +149,13 @@ struct TweakDetailSheet: View {
                 ))
                 .toggleStyle(.switch)
                 .labelsHidden()
-                .disabled(model.busy || sipBlocked)
+                .disabled(model.busy)
             }
 
-            if sipBlocked {
+            if stillRunningDespiteFlag || willBeLimited {
                 HStack(alignment: .top, spacing: 8) {
                     Image(systemName: "lock.shield.fill").foregroundStyle(MTColor.ambre)
-                    Text(loc.t("feat.sip.blocked"))
+                    Text(loc.t(stillRunningDespiteFlag ? "feat.reboot.pending" : "feat.reboot.will"))
                         .font(.caption).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
@@ -165,8 +186,11 @@ struct TweakDetailSheet: View {
                             }
                             ForEach(items) { item in
                                 HStack(spacing: 6) {
+                                    // Vert : actif · Ambre : désactivé mais encore en
+                                    // mémoire (effet au redémarrage) · Rouge : arrêté.
                                     Circle()
-                                        .fill(item.disabled ? MTColor.rouge : Color.green)
+                                        .fill(item.stillRunning ? MTColor.ambre
+                                              : (item.disabled ? MTColor.rouge : Color.green))
                                         .frame(width: 7, height: 7)
                                     Text(item.id).font(.system(.caption, design: .monospaced))
                                         .foregroundStyle(.secondary)
@@ -185,13 +209,12 @@ struct TweakDetailSheet: View {
                                         .toggleStyle(.switch)
                                         .controlSize(.mini)
                                         .labelsHidden()
-                                        .disabled(model.busy || sipBlocked)
+                                        .disabled(model.busy)
                                     }
                                 }
                             }
                         }
                         .padding(.top, 2)
-                        .opacity(sipBlocked ? 0.55 : 1)
                     }
                 }
             }
@@ -223,6 +246,11 @@ struct FeaturesView: View {
     @ObservedObject var model: TunerModel
     @EnvironmentObject var loc: L10n
 
+    /// Mode d'emploi de la désactivation de SIP : la seule manière d'arrêter
+    /// réellement les agents Apple relancés à la demande.
+    /// State(initialValue:) direct : la toolchain CLI n'a pas la macro @State.
+    private var showSIPHelp = State(initialValue: false)
+
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 10), count: 4)
 
     private var filteredTweaks: [Tweak] {
@@ -233,14 +261,25 @@ struct FeaturesView: View {
 
     private func groupRank(_ t: Tweak) -> Int { groupOrder.firstIndex(of: t.group) ?? 0 }
 
-    /// Compatibles SIP : réglages `defaults` et commandes admin. Effet immédiat.
+    /// Réglages `defaults` et commandes admin uniquement : effet immédiat et
+    /// complet, SIP sans influence. Ce sont les seuls qui tiennent toutes leurs
+    /// promesses sur un Mac protégé.
     private var sipCompatibleTweaks: [Tweak] {
-        filteredTweaks.filter { !$0.requiresSIPDisabled }
+        filteredTweaks.filter { !$0.usesAgents }
             .sorted { groupRank($0) < groupRank($1) }
     }
-    /// Reposent sur l'arrêt d'un agent Apple : bloqués tant que SIP est activé.
+    /// Coupent la fonction par une préférence ET visent des agents launchd. Sous
+    /// SIP la préférence agit — donc la fonction s'arrête — mais les agents,
+    /// eux, continuent d'être réveillés à la demande. Effet réel, mais partiel.
+    private var partialTweaks: [Tweak] {
+        filteredTweaks.filter { $0.usesAgents && $0.hasFunctionalSwitch }
+            .sorted { groupRank($0) < groupRank($1) }
+    }
+    /// N'agissent QUE sur des agents launchd, sans interrupteur fonctionnel de
+    /// repli. Sous SIP, poser leur drapeau ne change rien d'observable : macOS
+    /// réveille ces agents à la demande et interdit de les arrêter.
     private var sipRequiredTweaks: [Tweak] {
-        filteredTweaks.filter { $0.requiresSIPDisabled }
+        filteredTweaks.filter { $0.usesAgents && !$0.hasFunctionalSwitch }
             .sorted { groupRank($0) < groupRank($1) }
     }
 
@@ -318,9 +357,19 @@ struct FeaturesView: View {
                             accent: .green, icon: "checkmark.seal.fill",
                             tweaks: sipCompatibleTweaks)
                     }
+                    if !partialTweaks.isEmpty {
+                        categorySection(
+                            title: loc.t(SIP.enabled ? "feat.sip.partial.title"
+                                                     : "feat.sip.required.title.off"),
+                            desc: loc.t(SIP.enabled ? "feat.sip.partial.desc.on"
+                                                    : "feat.sip.required.desc.off"),
+                            accent: SIP.enabled ? MTColor.bleu : .green,
+                            icon: "checkmark.shield.fill", tweaks: partialTweaks)
+                    }
                     if !sipRequiredTweaks.isEmpty {
                         categorySection(
-                            title: loc.t("feat.sip.required.title"),
+                            title: loc.t(SIP.enabled ? "feat.sip.required.title"
+                                                     : "feat.sip.required.title.off"),
                             desc: loc.t(SIP.enabled ? "feat.sip.required.desc.on"
                                                     : "feat.sip.required.desc.off"),
                             accent: SIP.enabled ? MTColor.ambre : .green,
@@ -345,16 +394,19 @@ struct FeaturesView: View {
                             .disabled(model.busy)
                     }
                 }
-                if model.disabledCount > 0 && !SIP.enabled {
+                // Des agents tournent malgré leur drapeau. Ne proposer un redémarrage
+                // serait mentir : macOS les réveille à la demande, drapeau ou pas, et
+                // un boot à froid les ramène à l'identique. La seule sortie réelle est
+                // de désactiver SIP, donc c'est ça qu'on documente.
+                if model.stillRunningDespiteFlagCount > 0 {
                     HStack(spacing: 8) {
-                        Image(systemName: "arrow.triangle.2.circlepath.circle.fill").foregroundStyle(MTColor.ambre)
-                        Text(loc.t("feat.reboot"))
+                        Image(systemName: "lock.shield.fill").foregroundStyle(MTColor.ambre)
+                        Text(loc.t("feat.reboot", model.stillRunningDespiteFlagCount))
                             .font(.caption).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                         Spacer()
-                        Button(loc.t("feat.restart")) {
-                            Shell.run("/usr/bin/osascript", ["-e", "tell app \"System Events\" to restart"])
-                        }.controlSize(.small)
+                        Button(loc.t("feat.sip.howto")) { showSIPHelp.wrappedValue = true }
+                            .controlSize(.small)
                     }
                 }
                 HStack {
@@ -370,6 +422,11 @@ struct FeaturesView: View {
         .sheet(item: $model.detailTweak) { tweak in
             TweakDetailSheet(tweak: tweak, model: model).environmentObject(loc)
         }
+        .alert(loc.t("feat.sip.howto.title"), isPresented: showSIPHelp.projectedValue) {
+            Button(loc.t("common.close"), role: .cancel) { }
+        } message: {
+            Text(loc.t("feat.sip.howto.body"))
+        }
         .alert(
             loc.t("feat.confirm", model.pendingDisable?.name.current ?? ""),
             isPresented: Binding(
@@ -384,7 +441,11 @@ struct FeaturesView: View {
             }
             Button(loc.t("common.cancel"), role: .cancel) { model.pendingDisable = nil }
         } message: { tweak in
-            Text(tweak.breaks.current + "\n\n" + loc.t("feat.confirm.reboot"))
+            // L'avertissement « effet au redémarrage » n'a de sens que pour les
+            // agents launchd sous SIP : un réglage `defaults` prend effet tout de suite.
+            Text(tweak.limitedBySIP
+                 ? tweak.breaks.current + "\n\n" + loc.t("feat.confirm.reboot")
+                 : tweak.breaks.current)
         }
     }
 }

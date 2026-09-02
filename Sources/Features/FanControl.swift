@@ -60,9 +60,15 @@ enum FanControl {
     static var authInstalled: Bool { FileManager.default.fileExists(atPath: authPath) }
 
     /// Installe l'autorisation persistante (un seul mot de passe), validée par visudo.
+    /// Restreinte aux deux modes helper du ventilateur : le binaire nu n'est plus
+    /// autorisé en root, seules ces formes d'arguments le sont. Refusée si
+    /// l'emplacement du binaire ne se prête pas à une autorisation durable.
     static func installAuth() {
+        guard Permissions.binaryTrustIssue() == nil else { return }
         let user = NSUserName()
-        let line = "\(user) ALL=(root) NOPASSWD: \(binaryPath)"
+        let b = Permissions.sudoersEscaped(binaryPath)
+        let forms = ["\(b) --smc-fan *", "\(b) --fan-daemon *"].joined(separator: ", ")
+        let line = "\(user) ALL=(root) NOPASSWD: \(forms)"
         // Pas de guillemets doubles : la commande est déjà encapsulée dans une chaîne
         // AppleScript entre guillemets doubles par Shell.admin.
         let cmd = "t=$(mktemp) && echo '\(line)' > $t && chmod 440 $t"

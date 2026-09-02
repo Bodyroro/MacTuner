@@ -86,6 +86,12 @@ enum Maintenance {
             Shell.sh("xcode-select -p >/dev/null 2>&1 || exit 0; "
                 + "xcrun simctl delete unavailable >/dev/null 2>&1; true")
         },
+        MaintenanceAction(id: "overrides", nameKey: "maint.over.name", icon: "list.bullet.rectangle.portrait",
+            whatKey: "maint.over.what", needsAdmin: true) {
+            // Passe par le mode helper root : la base d'overrides appartient à root.
+            // Seules les entrées « activé » — donc sans effet — sont retirées.
+            Shell.admin("'\(Permissions.cleanBinaryPath)' --prune-overrides")
+        },
         MaintenanceAction(id: "fontcache", nameKey: "maint.font.name", icon: "textformat",
             whatKey: "maint.font.what", needsAdmin: false) {
             // Vide la base de caches de polices de la session : corrige les glyphes

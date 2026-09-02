@@ -119,16 +119,67 @@ enum Strings {
         "fan.blocked.desc":  [.fr: "La lecture des capteurs fonctionne, mais l'écriture du ventilateur est réservée à Apple Silicon sous macOS 26–27.",
                               .en: "Sensor reading works, but fan writing is limited to Apple Silicon on macOS 26–27."],
 
+        // MARK: Services
+        "tab.services":      [.fr: "Services", .en: "Services"],
+        "svc.subtitle":      [.fr: "Ce que fait chaque service, et s'il tourne encore. Lecture seule : les interrupteurs sont dans Fonctionnalités.",
+                              .en: "What each service does, and whether it is still running. Read-only: the switches live in Features."],
+        "svc.search":        [.fr: "Rechercher un service, un rôle…", .en: "Search a service or role…"],
+        "svc.scope.catalog": [.fr: "Catalogue MacTuner", .en: "MacTuner catalogue"],
+        "svc.scope.all":     [.fr: "Tous les services du Mac", .en: "Every service on the Mac"],
+        "svc.runningOnly":   [.fr: "Actifs seulement", .en: "Running only"],
+        "svc.stat.running":  [.fr: "actifs", .en: "running"],
+        "svc.stat.ram":      [.fr: "de RAM", .en: "of RAM"],
+        "svc.stat.disabled": [.fr: "désactivés", .en: "disabled"],
+        "svc.stat.pending":  [.fr: "relancés par macOS", .en: "relaunched by macOS"],
+        "svc.state.running": [.fr: "Actif", .en: "Running"],
+        "svc.state.idle":    [.fr: "À la demande", .en: "On demand"],
+        "svc.state.pending": [.fr: "Relancé malgré le drapeau", .en: "Relaunched despite flag"],
+        "svc.state.off":     [.fr: "Arrêté", .en: "Stopped"],
+        "svc.role.unknown":  [.fr: "Service macOS hors catalogue MacTuner.",
+                              .en: "macOS service outside MacTuner's catalogue."],
+        "svc.empty":         [.fr: "Aucun service ne correspond.", .en: "No service matches."],
+        "svc.verify.pending": [.fr: "%d service(s) portent le drapeau « désactivé » mais tournent quand même. Ce n'est pas un reliquat : macOS les réveille à la demande (XPC) en ignorant le drapeau, et SIP interdit de les arrêter. Redémarrer n'y changera rien. Pour les couper vraiment : désactivez la fonction correspondante dans Fonctionnalités, ou désactivez SIP depuis la Recovery.",
+                              .en: "%d service(s) carry the “disabled” flag yet keep running. This is not a leftover: macOS wakes them on demand (XPC) ignoring the flag, and SIP forbids stopping them. Restarting will not change it. To really cut them: turn off the matching feature in Features, or disable SIP from Recovery."],
+        "svc.verify.clean":  [.fr: "Vérifié : les %d services désactivés ne tournent plus. Aucun processus résiduel.",
+                              .en: "Verified: the %d disabled services are no longer running. No residual process."],
+
         // MARK: Fonctionnalités
         "feat.footer":       [.fr: "%d/%d désactivés. Tout est réversible, aucun fichier supprimé.",
                               .en: "%d/%d disabled. Fully reversible, no files removed."],
-        "feat.reboot":       [.fr: "Redémarrage requis pour l'effet complet. macOS (SIP) garde les agents Apple actifs jusqu'au redémarrage, et peut même en réactiver certains au démarrage : MacTuner les ré-applique alors automatiquement à chaque ouverture de session.",
-                              .en: "Restart needed for full effect. macOS (SIP) keeps Apple agents alive until reboot, and may even re-enable some at startup: MacTuner then reapplies them automatically at every login."],
+        "feat.reboot":       [.fr: "%d service(s) portent le drapeau « désactivé » mais tournent quand même : macOS les relance à la demande malgré le drapeau, et SIP interdit de les arrêter. Un redémarrage ne les enlèvera pas. Les réglages de préférences ci-dessous, eux, agissent tout de suite.",
+                              .en: "%d service(s) carry the “disabled” flag yet keep running: macOS relaunches them on demand despite the flag, and SIP forbids stopping them. A restart will not remove them. The preference-based settings below do take effect right away."],
         "feat.drift":        [.fr: "%d désactivation(s) ont été réactivées par macOS (généralement au redémarrage).",
                               .en: "%d disabled item(s) were re-enabled by macOS (usually at reboot)."],
         "feat.reapply":      [.fr: "Réappliquer", .en: "Reapply"],
         "feat.details":      [.fr: "Détails", .en: "Details"],
         "feat.restart":      [.fr: "Redémarrer…", .en: "Restart…"],
+        "feat.sip.howto":    [.fr: "Désactiver SIP…", .en: "Disable SIP…"],
+        "feat.sip.howto.title": [.fr: "Arrêter réellement les agents Apple",
+                              .en: "Genuinely stopping Apple agents"],
+        "feat.sip.howto.body": [.fr: """
+            Sur macOS 26/27, un agent Apple marqué « désactivé » est quand même             réveillé à la demande par launchd, et SIP interdit de l'arrêter. Le             seul moyen de les couper pour de bon est de désactiver la protection             de l'intégrité du système :
+
+            1. Éteignez le Mac, puis rallumez-le en maintenant le bouton             d'alimentation jusqu'à « Options de démarrage ».
+            2. Ouvrez Options, puis Utilitaires > Terminal.
+            3. Tapez : csrutil disable
+            4. Confirmez, puis redémarrez normalement.
+
+            À savoir avant : SIP protège le système contre les modifications             non autorisées. Désactivé, votre Mac est plus exposé, certaines apps             de streaming refusent de lire du contenu protégé, et Apple ne             recommande pas de le laisser ainsi. Pour revenir en arrière,             refaites la manipulation avec : csrutil enable
+
+            Sans désactiver SIP, préférez les réglages « Effet immédiat » de             cet onglet : ils coupent la fonction elle-même, et les agents             cessent alors d'être sollicités.
+            """,
+                              .en: """
+            On macOS 26/27, an Apple agent marked “disabled” is still woken on             demand by launchd, and SIP forbids stopping it. The only way to cut             them for good is to turn off System Integrity Protection:
+
+            1. Shut down the Mac, then power it on holding the power button             until “Startup Options” appears.
+            2. Open Options, then Utilities > Terminal.
+            3. Type: csrutil disable
+            4. Confirm, then restart normally.
+
+            Before you do: SIP protects the system against unauthorized             changes. With it off your Mac is more exposed, some streaming apps             refuse to play protected content, and Apple does not recommend             leaving it that way. To revert, repeat the steps with: csrutil enable
+
+            Without disabling SIP, prefer this tab's “Immediate effect”             settings: they turn the feature itself off, and the agents then             stop being called.
+            """],
         "feat.search":       [.fr: "Rechercher une fonctionnalité, une app…", .en: "Search a feature or app…"],
         "feat.subprocesses": [.fr: "Sous-processus (désactivables un par un)", .en: "Sub-processes (toggle individually)"],
         "feat.usage":        [.fr: "%d processus · %@ RAM · CPU %@", .en: "%d processes · %@ RAM · CPU %@"],
@@ -138,29 +189,44 @@ enum Strings {
         "feat.reenable":     [.fr: "À la réactivation", .en: "When re-enabled"],
         "feat.confirm":      [.fr: "Désactiver « %@ » ?", .en: "Disable “%@”?"],
         "feat.confirm.ok":   [.fr: "Désactiver", .en: "Disable"],
-        "feat.confirm.reboot": [.fr: "macOS (SIP) peut garder le service actif jusqu'au prochain redémarrage.",
-                              .en: "macOS (SIP) may keep the service active until the next restart."],
-        "feat.sip.on":       [.fr: "SIP est activé. Les réglages « Effet immédiat » ci-dessous s'appliquent tout de suite. Ceux qui reposent sur des agents Apple (Siri, Apple Intelligence, télémétrie) ne peuvent pas être arrêtés tant que SIP est actif : leurs processus continuent de tourner. Pour les couper réellement, désactivez SIP depuis la Recovery.",
-                              .en: "SIP is enabled. The “Immediate effect” settings below apply right away. Those relying on Apple agents (Siri, Apple Intelligence, telemetry) can't be stopped while SIP is on: their processes keep running. To truly turn them off, disable SIP from Recovery."],
-        "feat.sip.off":      [.fr: "SIP est désactivé. Toutes les fonctionnalités sont pleinement effectives, y compris l'arrêt des agents Apple.",
-                              .en: "SIP is disabled. Every feature is fully effective, including stopping Apple agents."],
+        "feat.confirm.reboot": [.fr: "Le drapeau launchd sera posé et conservé. Avec SIP activé il ne suffit pas : macOS continuera de réveiller ces agents à la demande. Seuls les réglages de préférences de cette fiche agiront réellement ; pour arrêter les agents eux-mêmes, il faut désactiver SIP.",
+                              .en: "The launchd flag will be set and kept. With SIP on that is not enough: macOS will keep waking these agents on demand. Only this card's preference settings will genuinely apply; stopping the agents themselves requires disabling SIP."],
+        "feat.sip.on":       [.fr: "SIP est activé. Les réglages de préférences et les commandes système ci-dessous fonctionnent normalement et coupent réellement les fonctions. En revanche, désactiver un agent Apple dans launchd n'a plus d'effet réel : sur macOS 26/27 ces agents ne démarrent plus au boot mais à la demande, et launchd honore cette demande même quand le drapeau « désactivé » est posé. SIP interdit par ailleurs de les arrêter. Le drapeau est donc écrit et conservé, mais l'agent peut continuer de tourner — un redémarrage n'y change rien. Pour les arrêter pour de bon, désactivez SIP depuis la Recovery.",
+                              .en: "SIP is enabled. The preference settings and system commands below work normally and genuinely turn features off. Disabling an Apple agent in launchd, however, no longer has a real effect: on macOS 26/27 these agents no longer start at boot but on demand, and launchd honours that demand even when the “disabled” flag is set. SIP also forbids stopping them. The flag is written and kept, but the agent may keep running — a restart changes nothing. To stop them for good, disable SIP from Recovery."],
+        "feat.sip.off":      [.fr: "SIP est désactivé. Toutes les fonctionnalités sont pleinement effectives immédiatement : les agents Apple sont réellement arrêtés, sans attendre de redémarrage.",
+                              .en: "SIP is disabled. Every feature is fully effective right away: Apple agents are genuinely stopped, with no restart needed."],
         "feat.count":        [.fr: "%d réglages", .en: "%d settings"],
-        "feat.sip.chip":     [.fr: "SIP requis", .en: "SIP required"],
-        "feat.sip.blocked":  [.fr: "Non modifiable tant que SIP est activé : ce réglage arrête un agent Apple, ce que macOS refuse sous SIP. Désactivez SIP depuis la Recovery pour l'utiliser.",
-                              .en: "Not changeable while SIP is on: this setting stops an Apple agent, which macOS refuses under SIP. Disable SIP from Recovery to use it."],
+        "set.auth.trust.home": [.fr: "Autorisation durable indisponible ici : MacTuner se trouve dans votre dossier personnel, où n'importe quel programme lancé sous votre compte peut le remplacer. Une règle sans mot de passe y reviendrait à donner un accès root permanent à ce programme. Déplacez MacTuner dans /Applications puis relancez-le. L'app reste pleinement fonctionnelle en attendant : elle demandera simplement le mot de passe pour les actions privilégiées.",
+                              .en: "Persistent authorization unavailable here: MacTuner sits in your home folder, where any program running under your account can replace it. A passwordless rule would therefore hand that program permanent root access. Move MacTuner to /Applications and relaunch it. The app stays fully functional meanwhile: it will simply ask for the password for privileged actions."],
+        "set.auth.trust.perms": [.fr: "Autorisation durable indisponible : l'exécutable de MacTuner est modifiable par son groupe ou par tous. Corrigez ses permissions (chmod go-w) avant d'activer l'autorisation sans mot de passe.",
+                              .en: "Persistent authorization unavailable: the MacTuner executable is writable by its group or by everyone. Fix its permissions (chmod go-w) before enabling passwordless authorization."],
+        "feat.reboot.chip":  [.fr: "SIP requis", .en: "Requires SIP off"],
+        "feat.reboot.pending": [.fr: "Le drapeau « désactivé » est posé et conservé, mais le service tourne quand même : macOS le réveille à la demande en ignorant le drapeau, et SIP interdit de l'arrêter. Redémarrer ne le supprimera pas. Coupez la fonction correspondante, ou désactivez SIP depuis la Recovery.",
+                              .en: "The “disabled” flag is set and kept, yet the service still runs: macOS wakes it on demand ignoring the flag, and SIP forbids stopping it. Restarting will not remove it. Turn off the matching feature, or disable SIP from Recovery."],
+        "feat.reboot.will":  [.fr: "Le drapeau launchd sera posé et conservé. Comme SIP est activé, il ne suffira pas à arrêter les agents Apple de cette fiche : macOS les réveille à la demande. Désactivez SIP depuis la Recovery pour qu'ils s'arrêtent réellement.",
+                              .en: "The launchd flag will be set and kept. Because SIP is on, it will not be enough to stop this card's Apple agents: macOS wakes them on demand. Disable SIP from Recovery for them to genuinely stop."],
+        "feat.sip.partial.title": [.fr: "Effet partiel — la fonction s'arrête, les agents restent",
+                              .en: "Partial effect — the feature stops, the agents remain"],
+        "feat.sip.partial.desc.on": [.fr: "Ces réglages coupent la fonction elle-même par une préférence : ça, macOS l'applique vraiment, tout de suite et durablement. Ils posent aussi un drapeau sur les agents launchd correspondants, sans effet tant que SIP est activé — ces agents restent réveillables à la demande. En pratique, la fonction ne travaille plus ; le processus, lui, peut rester en mémoire.",
+                              .en: "These settings turn the feature itself off through a preference: macOS really applies that, immediately and durably. They also flag the matching launchd agents, with no effect while SIP is on — those agents can still be woken on demand. In practice the feature stops working; the process itself may stay in memory."],
+        "feat.partial.chip":  [.fr: "Effet partiel", .en: "Partial effect"],
         "feat.sip.compatible.title": [.fr: "Effet immédiat", .en: "Immediate effect"],
-        "feat.sip.compatible.desc": [.fr: "Réglages de préférences et commandes système. S'appliquent tout de suite, que SIP soit activé ou non.",
-                              .en: "Preference settings and system commands. They apply right away, whether SIP is on or off."],
-        "feat.sip.required.title": [.fr: "Nécessite SIP désactivé", .en: "Requires SIP disabled"],
-        "feat.sip.required.desc.on": [.fr: "Ces réglages arrêtent des agents Apple. Avec SIP activé, macOS refuse de les stopper et les relance au démarrage : ils ne deviendront effectifs qu'après avoir désactivé SIP.",
-                              .en: "These settings stop Apple agents. With SIP on, macOS refuses to stop them and relaunches them at boot: they only take effect after you disable SIP."],
-        "feat.sip.required.desc.off": [.fr: "Ces agents Apple sont réellement arrêtés, puis ré-appliqués à chaque ouverture de session.",
-                              .en: "These Apple agents are truly stopped, then reapplied at every login."],
+        "feat.sip.compatible.desc": [.fr: "Réglages de préférences et commandes système. S'appliquent tout de suite, que SIP soit activé ou non, et sont conservés au redémarrage.",
+                              .en: "Preference settings and system commands. They apply right away, whether SIP is on or off, and survive a restart."],
+        "feat.sip.required.title": [.fr: "Agents Apple — sans effet réel tant que SIP est activé", .en: "Apple agents — no real effect while SIP is on"],
+        "feat.sip.required.title.off": [.fr: "Agents Apple — effet immédiat", .en: "Apple agents — immediate effect"],
+        "feat.sip.required.desc.on": [.fr: "Ces réglages posent un drapeau « désactivé » dans launchd. Le drapeau est bien écrit et conservé, mais il n'empêche que le démarrage automatique — or ces agents démarrent à la demande, et launchd honore cette demande malgré le drapeau. SIP interdit en plus de les arrêter. Résultat : l'agent peut continuer de tourner, avant comme après un redémarrage. Désactivez SIP depuis la Recovery pour que ces réglages agissent vraiment.",
+                              .en: "These settings set a “disabled” flag in launchd. The flag is written and kept, but it only blocks automatic startup — and these agents start on demand, a demand launchd honours despite the flag. SIP also forbids stopping them. As a result the agent may keep running, before and after a restart. Disable SIP from Recovery for these settings to genuinely apply."],
+        "feat.sip.required.desc.off": [.fr: "SIP étant désactivé, ces agents Apple sont réellement arrêtés sur-le-champ, puis ré-appliqués à chaque ouverture de session.",
+                              .en: "With SIP disabled, these Apple agents are genuinely stopped on the spot, then reapplied at every login."],
 
         // MARK: Maintenance
         "maint.title":       [.fr: "Maintenance & optimisation", .en: "Maintenance & optimization"],
         "maint.subtitle":    [.fr: "Actions ponctuelles pour rafraîchir le système. Sûres, sans perte de données.",
                               .en: "One-off actions to refresh the system. Safe, no data loss."],
+        "maint.over.name":   [.fr: "Nettoyer la base launchd", .en: "Clean the launchd database"],
+        "maint.over.what":   [.fr: "Retire de la base d'overrides de launchd les entrées qui valent « activé » : elles ne décrivent que le comportement par défaut et ne servent donc à rien. Vos désactivations ne sont jamais touchées.",
+                              .en: "Removes the entries worth “enabled” from launchd's overrides database: they only describe the default behaviour and are therefore useless. Your disabled services are never touched."],
         "maint.dns.name":    [.fr: "Vider le cache DNS", .en: "Flush DNS cache"],
         "maint.dns.what":    [.fr: "Purge la résolution de noms et relance mDNSResponder.",
                               .en: "Clears name resolution and restarts mDNSResponder."],

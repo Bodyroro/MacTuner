@@ -17,6 +17,9 @@ final class SettingsModel: ObservableObject {
     @Published var fanAuth = false
     @Published var resetDone = false
     @Published var scheduled = false
+    /// Raison pour laquelle l'autorisation durable est refusée (emplacement du
+    /// binaire trop permissif). nil quand elle peut être posée.
+    @Published var trustIssue: String?
 
     /// Interroge l'état des autorisations HORS du thread principal (évite tout gel/kill
     /// pendant l'affichage de l'onglet Réglages).
@@ -26,9 +29,10 @@ final class SettingsModel: ObservableObject {
             let admin = Permissions.hasPersistentAdmin()
             let fan = FanControl.authInstalled
             let sched = Scheduler.isEnabled
+            let trust = Permissions.binaryTrustIssue()
             await MainActor.run {
                 self.fda = fda; self.adminPersistent = admin; self.fanAuth = fan
-                self.scheduled = sched
+                self.scheduled = sched; self.trustIssue = trust
             }
         }
     }
@@ -199,8 +203,25 @@ struct SettingsView: View {
                 HStack(spacing: 8) {
                     if model.installingAdmin { ProgressView().controlSize(.small) }
                     if model.adminPersistent { Button(loc.t("common.revoke")) { model.revokeAdmin() } }
-                    else { Button(loc.t("common.activate")) { model.installAdmin() }.disabled(model.installingAdmin) }
+                    else {
+                        Button(loc.t("common.activate")) { model.installAdmin() }
+                            .disabled(model.installingAdmin || model.trustIssue != nil)
+                    }
                 }
+            }
+            // Refus expliqué : une règle sans mot de passe sur un binaire réinscriptible
+            // reviendrait à donner root à tout ce qui tourne sous ce compte.
+            if let issue = model.trustIssue, !model.adminPersistent {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "exclamationmark.shield.fill").foregroundStyle(MTColor.ambre)
+                    Text(issue).font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(MTColor.ambre.opacity(0.10)))
             }
             Divider()
             SettingsRow(icon: "fanblades",

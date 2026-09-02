@@ -49,6 +49,15 @@ MacTuner n'emploie que des mécanismes documentés par Apple (`launchctl`,
 
 ## Fonctionnalités
 
+### Référence et vérification
+
+| Module | Ce qu'il apporte |
+|---|---|
+| **Services** | Les 108 services du catalogue, un par un : rôle en une phrase, domaine (session ou système), fiche qui le couvre, mémoire occupée et PID. Un second mode liste les **887 services** que launchd connaît sur la machine, catalogue ou non. Trois états distincts : actif, désactivé mais encore en mémoire (effet au redémarrage), arrêté. C'est là qu'on vérifie qu'une désactivation a réellement pris — pas dans un message de confirmation. Lecture seule. |
+
+Depuis le Terminal, `MacTuner --list-services` (ajouter `all` pour tout le Mac)
+imprime le même inventaire, calculé par le même code.
+
 ### Surveillance et matériel
 
 | Module | Ce qu'il apporte |
@@ -70,7 +79,7 @@ MacTuner n'emploie que des mécanismes documentés par Apple (`launchctl`,
 | Module | Ce qu'il apporte |
 |---|---|
 | **Fonctionnalités** | Trente-quatre réglages système activables et désactivables (Siri, Apple Intelligence, télémétrie, iCloud et d'autres), présentés par catégorie ou par sous-processus. Réversibles à cent pour cent. |
-| **Tweaks** | Interrupteurs pour le Finder (fichiers cachés, extensions, barre de chemin), pour le Dock, pour le format et l'emplacement des captures d'écran, et pour l'anti-veille, lui aussi persistant. |
+| **Tweaks** | Interrupteurs pour le Finder (fichiers cachés, extensions, barre de chemin), pour le Dock, pour le format et l'emplacement des captures d'écran, et pour l'anti-veille — réellement permanente : un agent utilisateur `caffeinate` la maintient même MacTuner fermé et après un redémarrage. |
 | **Maintenance** | Vidage du cache DNS et de la mémoire, réindexation Spotlight, gestion des instantanés Time Machine, cache d'icônes, base Launch Services, redémarrage du Dock et du Finder, compactage des bases SQLite, historique Gatekeeper, caches de polices, suppression des simulateurs iOS devenus indisponibles. |
 | **Réglages** | Choix de la langue, compatibilité, autorisations persistantes, nettoyage hebdomadaire planifié, réinitialisation complète, et désinstallation de MacTuner lui-même. |
 
@@ -87,30 +96,69 @@ portent pas ce drapeau de protection : elles restent désinstallables comme
 n'importe quelle autre application.
 
 Les droits administrateur se limitent à des commandes précises, accordées par des
-règles `sudoers` révocables à tout moment. MacTuner ne communique avec aucun
-serveur, ne collecte aucune donnée et ne contient aucun traceur.
+règles `sudoers` révocables à tout moment. Ces règles nomment **le mode helper et
+sa forme d'arguments**, jamais le binaire nu : `sudo MacTuner` sans argument, ou
+avec un argument non prévu, est refusé.
+
+Elles ne sont d'ailleurs posées que si MacTuner vit **hors du dossier personnel**.
+Une règle sans mot de passe visant un exécutable que l'utilisateur peut réécrire
+donnerait un accès root permanent à n'importe quel programme tournant sous son
+compte : depuis `~/Téléchargements`, MacTuner refuse donc l'autorisation durable
+et l'explique, en continuant de fonctionner avec une invite de mot de passe.
+Placez l'app dans `/Applications` pour bénéficier de l'autorisation durable.
+
+MacTuner ne communique avec aucun serveur, ne collecte aucune donnée et ne
+contient aucun traceur.
 
 ## SIP, la protection de l'intégrité du système
 
-Sur macOS 26 et 27, SIP est actif par défaut et refuse l'arrêt des agents Apple :
-`launchctl bootout` échoue alors avec l'erreur 150. MacTuner ne masque pas cette
-limite. L'onglet **Fonctionnalités** range chaque réglage dans l'une de deux
-catégories explicites.
+SIP est actif par défaut sur macOS 26 et 27. Contrairement à une idée répandue,
+il n'empêche pas de désactiver les agents Apple : il empêche seulement de **tuer
+un agent déjà lancé**. La distinction est mesurable, et c'est elle que MacTuner
+applique.
 
-**Effet immédiat, compatible SIP.** Réglages de préférences (`defaults`) et
-commandes système telles que Spotlight, Power Nap ou le son de démarrage. Ils
-s'appliquent aussitôt, que SIP soit actif ou non.
+| Commande | SIP activé | Portée |
+|---|---|---|
+| `launchctl disable gui/<uid>/<label>` | **réussit** (code 0) | Écrit un drapeau dans `/var/db/com.apple.xpc.launchd/disabled.<uid>.plist`, fichier appartenant à `root`. Il survit à la veille et au redémarrage : launchd ne chargera plus jamais l'agent. |
+| `launchctl bootout gui/<uid>/<label>` | **refusé** (code 150) | Le processus déjà en mémoire continue de tourner jusqu'à la fermeture de session ou au redémarrage. |
 
-**Nécessite SIP désactivé.** Réglages qui reposent sur l'arrêt d'un agent Apple
-(Siri, Apple Intelligence, télémétrie, iCloud). Tant que SIP est actif, ils
-apparaissent grisés et ne sont pas modifiables, car leur effet ne surviendrait
-qu'après un `csrutil disable` lancé depuis la Recovery. Ils redeviennent
-disponibles automatiquement dès que SIP est désactivé.
+Autrement dit, avec SIP activé une désactivation est **permanente dès l'instant
+où vous la faites**, mais son effet n'est **complet qu'au prochain redémarrage**.
+Aucun réglage n'est donc grisé ni bloqué : l'onglet **Fonctionnalités** range les
+réglages en deux catégories, uniquement pour annoncer le délai.
 
-MacTuner lit l'état réel du système : un réglage bloqué par SIP est signalé comme
-tel, jamais présenté comme appliqué. Lorsque SIP est désactivé, un agent
-utilisateur réapplique vos choix à chaque ouverture de session, car macOS 26 et 27
-réactivent d'eux-mêmes certains agents au démarrage.
+**Effet immédiat.** Réglages de préférences (`defaults`) et commandes système
+telles que Spotlight, Power Nap ou le son de démarrage. Ils s'appliquent aussitôt
+et sont conservés au redémarrage, que SIP soit actif ou non.
+
+**Agents Apple.** Siri, Apple Intelligence, télémétrie, iCloud… Enregistrés et
+permanents immédiatement ; pleinement effectifs au prochain redémarrage tant que
+SIP est actif, ou sur-le-champ après un `csrutil disable` lancé depuis la Recovery.
+
+### Les deux domaines launchd
+
+Un service macOS vit dans l'un de deux domaines, et couper l'un ne coupe pas l'autre :
+
+| Domaine | Ce qu'il contient | Privilège requis |
+|---|---|---|
+| `gui/<uid>` | Les **agents** de votre session (`/System/Library/LaunchAgents`) | aucun |
+| `system` | Les **démons** root, actifs hors session (`/System/Library/LaunchDaemons`) | administrateur |
+
+La télémétrie illustre pourquoi les deux comptent : couper les 4 agents de collecte
+laissait `analyticsd` et `osanalyticshelper` — des démons root — continuer à
+agréger et transmettre. MacTuner agit désormais sur les deux domaines. Les démons
+concernés sont énumérés dans une **liste blanche compilée** (`SystemDaemons.allowed`),
+limitée à la télémétrie et aux rapports d'incident ; le mode helper root refuse tout
+label absent de cette liste, quel que soit l'appelant.
+
+MacTuner affiche les deux états séparément et ne ment jamais sur le résultat :
+une pastille verte signale un service actif, une pastille **ambre** un service
+désactivé mais encore en mémoire (effet au redémarrage), une pastille rouge un
+service réellement arrêté. Un bandeau propose le redémarrage uniquement quand il
+reste des processus à faire tomber. En parallèle, un agent utilisateur réapplique
+vos choix à chaque ouverture de session, toutes les heures et dès que macOS
+réécrit sa base d'overrides — macOS 26 et 27 réactivant d'eux-mêmes certains
+agents après une mise à jour.
 
 ## Installation
 
@@ -219,6 +267,15 @@ SMC). No system file is ever modified.
 
 ## Features
 
+### Reference and verification
+
+| Module | What it brings |
+|---|---|
+| **Services** | The catalogue's 108 services, one by one: a one-sentence role, the domain (session or system), the entry that covers it, memory used and PID. A second mode lists the **887 services** launchd knows about on the machine, catalogued or not. Three distinct states: running, disabled but still in memory (effective at restart), stopped. This is where you verify that a change actually took hold — not in a confirmation message. Read-only. |
+
+From the Terminal, `MacTuner --list-services` (add `all` for the whole Mac)
+prints the same inventory, computed by the same code.
+
 ### Monitoring and hardware
 
 | Module | What it provides |
@@ -239,7 +296,7 @@ SMC). No system file is ever modified.
 
 | Module | What it provides |
 |---|---|
-| **Features** | Thirty four system settings you can enable or disable (Siri, Apple Intelligence, telemetry, iCloud and others), presented by category or by subprocess. Fully reversible. |
+| **Features** | Thirty four system settings you can enable or disable (Siri, Apple Intelligence, telemetry, iCloud and others), presented by category or by subprocess. Each setting cuts the **entire chain**: 108 services in total, 85 session agents and 23 root daemons, dependencies included. Fully reversible. |
 | **Tweaks** | Switches for the Finder (hidden files, extensions, path bar), for the Dock, for screenshot format and location, and for keeping the Mac awake, which is persistent too. |
 | **Maintenance** | DNS and memory cache flushing, Spotlight reindexing, Time Machine snapshot management, icon cache, Launch Services database, Dock and Finder restart, SQLite database compaction, Gatekeeper history, font caches, and removal of iOS simulators that are no longer available. |
 | **Settings** | Language selection, compatibility, persistent authorisations, scheduled weekly cleanup, full reset, and uninstallation of MacTuner itself. |
@@ -257,29 +314,85 @@ not carry that protection flag and remain uninstallable like any other
 application.
 
 Administrator rights are limited to specific commands, granted through `sudoers`
-rules that can be revoked at any time. MacTuner talks to no server, collects no
-data and contains no tracker.
+rules that can be revoked at any time. Those rules name **the helper mode and its
+argument shape**, never the bare binary: `sudo MacTuner` with no argument, or with
+an unexpected one, is refused.
+
+They are moreover only installed if MacTuner lives **outside the home folder**. A
+passwordless rule pointing at an executable the user can rewrite would hand
+permanent root access to any program running under that account: from
+`~/Downloads`, MacTuner therefore refuses the persistent authorization and says so,
+while continuing to work with a password prompt. Put the app in `/Applications` to
+get the persistent authorization.
+
+MacTuner talks to no server, collects no data and contains no tracker.
 
 ## SIP, System Integrity Protection
 
-On macOS 26 and 27, SIP is enabled by default and refuses to stop Apple agents:
-`launchctl bootout` then fails with error 150. MacTuner does not hide this limit.
-The **Features** tab sorts every setting into one of two explicit categories.
+SIP is enabled by default on macOS 26 and 27. Contrary to a widespread belief, it
+does not prevent disabling Apple agents: it only prevents **killing an agent that
+is already running**. The distinction is measurable, and it is the one MacTuner
+acts on.
 
-**Immediate effect, SIP compatible.** Preference settings (`defaults`) and system
-commands such as Spotlight, Power Nap or the startup chime. They apply right away,
-whether SIP is enabled or not.
+| Command | With SIP on | Scope |
+|---|---|---|
+| `launchctl disable gui/<uid>/<label>` | **succeeds** (exit 0) | Writes a flag into `/var/db/com.apple.xpc.launchd/disabled.<uid>.plist`, a root-owned file. It survives sleep and reboot: launchd will never load the agent again. |
+| `launchctl bootout gui/<uid>/<label>` | **refused** (exit 150) | The process already in memory keeps running until logout or restart. |
 
-**Requires SIP disabled.** Settings that rely on stopping an Apple agent (Siri,
-Apple Intelligence, telemetry, iCloud). While SIP is enabled they appear greyed
-out and cannot be changed, because they would only take effect after running
-`csrutil disable` from Recovery. They become available again automatically once
-SIP is disabled.
+In other words, with SIP on a change is **permanent the moment you make it**, but
+its effect is **complete only at the next restart**. No setting is therefore greyed
+out or blocked: the **Features** tab sorts settings into two categories purely to
+announce the delay.
 
-MacTuner reads the real system state: a setting blocked by SIP is reported as
-such and never presented as applied. When SIP is disabled, a user agent reapplies
-your choices at every login, because macOS 26 and 27 reactivate some agents on
-their own at startup.
+**Immediate effect.** Preference settings (`defaults`) and system commands such as
+Spotlight, Power Nap or the startup chime. They apply right away and survive a
+restart, whether SIP is on or off.
+
+**Apple agents.** Siri, Apple Intelligence, telemetry, iCloud… Saved and permanent
+right away; fully effective at the next restart while SIP is on, or on the spot
+after `csrutil disable` from Recovery.
+
+### Cutting the chain, not just its front door
+
+A setting is only worth something if it stops EVERYTHING that keeps it alive.
+Cutting the four telemetry agents without `analyticsd` amounted to closing the
+door and leaving the window open. Each entry therefore references the full chain:
+session agents, root daemons, preference keys and system commands.
+
+Some services are deliberately **spared**, and the code says why: `mlruntimed`
+(generic ML engine shared with Live Text and Photos), `symptomsd` (the network
+stack depends on it), `perfpowermetricd` (battery readings), `chronod` (every
+widget, not just Weather), `callservicesd` (FaceTime), `photolibraryd` (Photos
+itself) and system speech synthesis (VoiceOver).
+
+`tools/verify-labels.py`, run on every build, checks the catalog's 108 labels
+against the plists actually installed. It refuses to compile if a label does not
+exist or targets the wrong domain — because `launchctl disable` on a nonexistent
+label succeeds silently and the app would wrongly conclude "disabled". A single
+capitalisation slip is enough.
+
+### The two launchd domains
+
+A macOS service lives in one of two domains, and stopping one does not stop the other:
+
+| Domain | What it holds | Privilege needed |
+|---|---|---|
+| `gui/<uid>` | The **agents** of your session (`/System/Library/LaunchAgents`) | none |
+| `system` | The root **daemons**, running outside any session (`/System/Library/LaunchDaemons`) | administrator |
+
+Telemetry shows why both matter: stopping the 4 collection agents still left
+`analyticsd` and `osanalyticshelper` — root daemons — aggregating and transmitting.
+MacTuner now acts on both domains. The daemons involved are listed in a **compiled
+allow-list** (`SystemDaemons.allowed`) limited to telemetry and crash reporting; the
+root helper mode refuses any label absent from that list, whoever the caller is.
+
+MacTuner shows both states separately and never misreports the result: a green dot
+means the service is running, an **amber** dot means disabled but still in memory
+(effective at restart), a red dot means genuinely stopped. A banner offers a
+restart only when processes actually remain to be brought down. In parallel, a user
+agent reapplies your choices at every login, hourly, and whenever macOS rewrites
+its overrides database — macOS 26 and 27 do re-enable some agents on their own
+after an update.
 
 ## Installation
 

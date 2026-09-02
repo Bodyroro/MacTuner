@@ -26,6 +26,14 @@ final class TunerModel: ObservableObject {
 
     var driftCount: Int { driftTweakIDs.count + driftAgentLabels.count }
 
+    /// Agents portant le drapeau « disabled » dont le processus tourne quand même.
+    /// Ce n'est PAS un état transitoire qu'un redémarrage résoudrait : macOS les
+    /// réveille à la demande (XPC/Mach) malgré le drapeau, et SIP interdit de les
+    /// arrêter. Sans désactiver SIP, ce compteur reste durablement non nul.
+    var stillRunningDespiteFlagCount: Int {
+        itemStates.values.flatMap { $0 }.filter(\.stillRunning).count
+    }
+
     func isDisabled(_ tweak: Tweak) -> Bool { tweakDisabled[tweak.id] ?? false }
 
     private func applyStates(_ states: (disabled: [String: Bool], items: [String: [DetailItem]],

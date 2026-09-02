@@ -14,27 +14,27 @@ enum SelfUninstall {
     private static let bundleID = "local.rodolphe.mactuner"
 
     static func run(restoreFeatures: Bool) {
-        // 1. Réactiver éventuellement les fonctionnalités désactivées par l'utilisateur.
+        // 1. Restauration exhaustive : même routine que la réinitialisation, pour
+        // qu'aucun cas ne soit couvert d'un côté et oublié de l'autre. Elle remet
+        // agents, démons système, clés `defaults` et commandes admin dans leur état
+        // d'origine, retire les LaunchAgents de MacTuner et rend la main au
+        // gestionnaire thermique.
         if restoreFeatures {
-            for tweak in allTweaks where !tweak.needsAdmin {
-                Engine.apply(tweak, disable: false)
-            }
+            Restore.toDefaults(removeAuthorizations: false)
+        } else {
+            // Sans restauration des réglages, on retire tout de même ce qui ne
+            // survivrait à l'app que sous forme de processus orphelins.
+            DesiredState.clear()
+            ReapplyAgent.remove()
+            KeepAwakeAgent.remove()
+            Scheduler.disable()
+            if SMC.fanCount() > 0 { FanControl.setAuto(index: 0) }
         }
-        // 2. Remettre le ventilateur en automatique.
-        if SMC.fanCount() > 0 { FanControl.setAuto(index: 0) }
 
-        // 2 bis. Retirer l'agent de ré-application au login, l'état voulu et le
-        // nettoyage planifié.
-        DesiredState.clear()
-        ReapplyAgent.remove()
-        Scheduler.disable()
-
-        // 3. Retirer règles sudoers + démon (une seule invite admin).
-        // Le démon est d'abord déchargé : retirer seulement son fichier le laisserait
-        // tourner (et ré-affirmer la vitesse) jusqu'au prochain redémarrage.
-        Shell.admin("(launchctl bootout system/\(FanControl.daemonLabel) 2>/dev/null; true); "
-            + "rm -f /etc/sudoers.d/mactuner /etc/sudoers.d/mactuner-fan "
-            + "/etc/sudoers.d/mactuner-clean \(FanControl.daemonPath) 2>/dev/null; true")
+        // 2. Règles sudoers, LaunchDaemon du ventilateur et sauvegardes : en dernier,
+        // pour que les restaurations privilégiées ci-dessus aient encore leur
+        // passe-droit. Une seule invite administrateur.
+        Restore.revokeAuthorizations()
 
         // 4. Effacer toutes les données locales.
         UserDefaults.standard.removePersistentDomain(forName: bundleID)
@@ -102,14 +102,16 @@ enum Permissions {
 
     /// Installe l'autorisation admin durable EN UNE SEULE invite de mot de passe :
     ///  • la règle limitée aux 3 commandes système (mdutil, pmset, nvram) ;
-    ///  • la règle du nettoyage système (le binaire MacTuner en mode `--clean-system`).
+    ///  • la règle des modes helper de MacTuner, restreinte aux formes d'arguments
+    ///    autorisées (voir `helperCommandForms`).
     /// Chaque fichier est validé par visudo avant d'être mis en place, un fichier
-    /// invalide n'est jamais installé. Résultat : plus aucune invite ensuite, ni pour
-    /// les réglages système, ni pour le nettoyage des zones système.
+    /// invalide n'est jamais installé. Refuse si l'emplacement du binaire ne se
+    /// prête pas à une autorisation root durable (voir `binaryTrustIssue`).
     static func installPersistentAdmin() -> Bool {
+        guard binaryTrustIssue() == nil else { return false }
         let user = NSUserName()
         let cmdLine = "\(user) ALL=(root) NOPASSWD: \(sudoersCommands)"
-        let cleanLine = "\(user) ALL=(root) NOPASSWD: \(cleanBinaryPath)"
+        let cleanLine = "\(user) ALL=(root) NOPASSWD: \(helperCommandForms)"
         let cmd = "t1=$(mktemp) && echo '\(cmdLine)' > $t1 && chmod 440 $t1"
             + " && /usr/sbin/visudo -c -f $t1 && mv $t1 \(sudoersPath) || rm -f $t1; "
             + "t2=$(mktemp) && echo '\(cleanLine)' > $t2 && chmod 440 $t2"
@@ -133,13 +135,63 @@ enum Permissions {
     static let cleanAuthPath = "/etc/sudoers.d/mactuner-clean"
     static var cleanBinaryPath: String { Bundle.main.executablePath ?? CommandLine.arguments[0] }
 
+    /// Échappe un chemin pour sudoers. Un espace, une virgule, un `:`, un `=`, un `\`
+    /// ou un `#` non échappés font rejeter le fichier par visudo : la règle n'est alors
+    /// jamais installée et l'app redemande le mot de passe sans jamais dire pourquoi.
+    /// Le cas est réel dès que l'app vit dans un dossier contenant un espace.
+    static func sudoersEscaped(_ path: String) -> String {
+        var out = ""
+        for ch in path {
+            if " ,:=\\#".contains(ch) { out.append("\\") }
+            out.append(ch)
+        }
+        return out
+    }
+
     static func hasCleanAuth() -> Bool { FileManager.default.fileExists(atPath: cleanAuthPath) }
+
+    /// Formes de commande autorisées sans mot de passe, argument de tête compris.
+    ///
+    /// La règle visait auparavant le binaire NU : `sudo <MacTuner>` acceptait alors
+    /// n'importe quel argument — présent ou futur — et même aucun, c'est-à-dire
+    /// l'application entière lancée en root. Chaque mode helper est désormais
+    /// énuméré ; tout ce qui n'est pas listé ici repasse par l'invite de mot de passe.
+    static var helperCommandForms: String {
+        let b = sudoersEscaped(cleanBinaryPath)
+        return ["\(b) --clean-system *",
+                "\(b) --launchd-system *"].joined(separator: ", ")
+    }
+
+    /// Pourquoi ce binaire ne doit PAS recevoir d'autorisation root sans mot de passe.
+    /// Renvoie nil quand tout va bien.
+    ///
+    /// Une règle NOPASSWD sur un exécutable que l'utilisateur peut réécrire équivaut
+    /// à donner root à tout ce qui tourne sous son compte : il suffit de remplacer le
+    /// binaire. C'est le cas de tout ce qui vit dans le dossier personnel —
+    /// Téléchargements en particulier. On refuse alors la règle plutôt que de la
+    /// poser en silence ; l'app continue de fonctionner, avec une invite de mot de
+    /// passe pour les actions privilégiées.
+    static func binaryTrustIssue() -> String? {
+        let path = cleanBinaryPath
+        let home = NSHomeDirectory()
+        if path.hasPrefix(home + "/") {
+            return T("set.auth.trust.home")
+        }
+        // Écriture ouverte au groupe ou à tous : même conclusion.
+        if let attrs = try? FileManager.default.attributesOfItem(atPath: path),
+           let perms = attrs[.posixPermissions] as? NSNumber,
+           perms.uint16Value & 0o022 != 0 {
+            return T("set.auth.trust.perms")
+        }
+        return nil
+    }
 
     /// Installe la règle (une seule invite), validée par visudo avant mise en place.
     @discardableResult
     static func installCleanAuth() -> Bool {
+        guard binaryTrustIssue() == nil else { return false }
         let user = NSUserName()
-        let line = "\(user) ALL=(root) NOPASSWD: \(cleanBinaryPath)"
+        let line = "\(user) ALL=(root) NOPASSWD: \(helperCommandForms)"
         let cmd = "t=$(mktemp) && echo '\(line)' > $t && chmod 440 $t"
             + " && /usr/sbin/visudo -c -f $t && mv $t \(cleanAuthPath) || rm -f $t"
         Shell.admin(cmd)
@@ -167,16 +219,20 @@ final class PermissionsModel: ObservableObject {
     @Published var adminOK = false
     @Published var adminPersistent: Bool
     @Published var testingAdmin = false
+    /// Raison d'un refus d'autorisation durable (emplacement du binaire), sinon nil.
+    @Published var trustIssue: String?
 
     init() {
         fda = Permissions.hasFullDiskAccess()
         adminPersistent = Permissions.hasPersistentAdmin()
+        trustIssue = Permissions.binaryTrustIssue()
         showSheet = !UserDefaults.standard.bool(forKey: "onboardingDone")
     }
 
     func recheckFDA() {
         fda = Permissions.hasFullDiskAccess()
         adminPersistent = Permissions.hasPersistentAdmin()
+        trustIssue = Permissions.binaryTrustIssue()
     }
 
     func testAdmin() {

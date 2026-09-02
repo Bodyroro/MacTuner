@@ -11,8 +11,9 @@ import Darwin
 
 enum Engine {
 
-    static func defaultsIsDisabled(domain: String, key: String, disabledValue: DefaultsKind) -> Bool {
-        let raw = Shell.run("/usr/bin/defaults", ["read", domain, key])
+    static func defaultsIsDisabled(domain: String, key: String, disabledValue: DefaultsKind,
+                                   byHost: Bool = false) -> Bool {
+        let raw = Shell.run("/usr/bin/defaults", (byHost ? ["-currentHost"] : []) + ["read", domain, key])
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !raw.isEmpty else { return false }
         if let a = Double(raw), let b = Double(disabledValue.readForm) {
@@ -70,43 +71,79 @@ enum Engine {
             if case .agents(let labels) = mech {
                 for l in labels { if let p = runningPID(l) { pids.append(p) } }
             }
+            if case .systemDaemons(let labels) = mech {
+                for l in labels { if let p = LaunchCtl.systemRunningPID(l) { pids.append(p) } }
+            }
         }
         let info = psUsage(pids: pids)
         return (info.values.reduce(0) { $0 + $1.rss }, info.count)
     }
 
+    /// Identifiant d'affichage d'un démon système. Centralisé : la restauration
+    /// retrouve les items par cet identifiant, pas par leur position.
+    static func daemonItemID(_ label: String) -> String { "\(label) (système)" }
+
     static func mechanismItems(_ mech: Mechanism, disabledAgents: Set<String>,
+                               disabledDaemons: Set<String>,
                                procUsage: [String: ProcUsage]) -> [DetailItem] {
         switch mech {
+        case .systemDaemons(let labels):
+            return labels.map { label in
+                let off = disabledDaemons.contains(label)
+                let info = procUsage[label].map {
+                    "\(humanBytes($0.rssBytes)) · CPU \(humanCPU($0.cpuSeconds))"
+                }
+                return DetailItem(id: Engine.daemonItemID(label), disabled: off,
+                                  stillRunning: off && procUsage[label] != nil,
+                                  info: info, agentLabel: nil)
+            }
         case .agents(let labels):
             return labels.map { label in
                 let info = procUsage[label].map {
                     "\(humanBytes($0.rssBytes)) · CPU \(humanCPU($0.cpuSeconds))"
                 }
-                return DetailItem(id: label, disabled: disabledAgents.contains(label),
+                let off = disabledAgents.contains(label)
+                // Drapeau posé mais processus toujours vivant = cas SIP : la
+                // désactivation est enregistrée, elle prendra effet au redémarrage.
+                return DetailItem(id: label, disabled: off,
+                                  stillRunning: off && procUsage[label] != nil,
                                   info: info, agentLabel: label)
             }
         case .defaultsKey(let domain, let key, let disabledValue, _, _):
             let off = defaultsIsDisabled(domain: domain, key: key, disabledValue: disabledValue)
-            return [DetailItem(id: "\(domain) → \(key)", disabled: off, info: nil, agentLabel: nil)]
+            return [DetailItem(id: "\(domain) → \(key)", disabled: off)]
+        case .defaultsHostKey(let domain, let key, let disabledValue, _, _):
+            let off = defaultsIsDisabled(domain: domain, key: key,
+                                         disabledValue: disabledValue, byHost: true)
+            return [DetailItem(id: "\(domain) → \(key)", disabled: off)]
         case .admin(let label, _, _, let checkCmd, let marker):
             let off = Shell.sh(checkCmd).contains(marker)
-            return [DetailItem(id: label, disabled: off, info: nil, agentLabel: nil)]
+            return [DetailItem(id: label, disabled: off)]
         }
     }
 
     static func computeStates() -> (disabled: [String: Bool], items: [String: [DetailItem]],
                                     usage: [String: TweakUsage]) {
         let disabledAgents = LaunchCtl.disabledServices()
+        let disabledDaemons = LaunchCtl.disabledSystemServices()
 
-        // Mesure RAM/CPU : PID de chaque agent non désactivé, puis un seul appel ps.
+        // Mesure RAM/CPU : PID de CHAQUE service du catalogue, désactivé ou non.
+        // Inclure les services désactivés est indispensable : sous SIP, `bootout` est
+        // refusé, ils tournent encore et l'interface doit le dire.
         var labelPID = [String: Int32]()
         for tweak in allTweaks {
             for mech in tweak.mechanisms {
-                if case .agents(let labels) = mech {
-                    for label in labels where !disabledAgents.contains(label) {
+                switch mech {
+                case .agents(let labels):
+                    for label in labels {
                         if let pid = runningPID(label) { labelPID[label] = pid }
                     }
+                case .systemDaemons(let labels):
+                    for label in labels {
+                        if let pid = LaunchCtl.systemRunningPID(label) { labelPID[label] = pid }
+                    }
+                default:
+                    break
                 }
             }
         }
@@ -128,14 +165,16 @@ enum Engine {
             var cpu = 0.0
             for mech in tweak.mechanisms {
                 items.append(contentsOf: mechanismItems(mech, disabledAgents: disabledAgents,
+                                                        disabledDaemons: disabledDaemons,
                                                         procUsage: procUsage))
-                if case .agents(let labels) = mech {
-                    for label in labels {
-                        if let u = procUsage[label] {
-                            procs += 1
-                            rss += u.rssBytes
-                            cpu += u.cpuSeconds
-                        }
+                var measured = [String]()
+                if case .agents(let labels) = mech { measured = labels }
+                if case .systemDaemons(let labels) = mech { measured = labels }
+                for label in measured {
+                    if let u = procUsage[label] {
+                        procs += 1
+                        rss += u.rssBytes
+                        cpu += u.cpuSeconds
                     }
                 }
             }
@@ -146,12 +185,37 @@ enum Engine {
         return (disabledMap, itemsMap, usageMap)
     }
 
-    static func apply(_ tweak: Tweak, disable: Bool) {
+    /// Ce qu'une application de réglage a réellement produit.
+    struct ApplyOutcome {
+        /// Tous les drapeaux/clés sont posés : le réglage est enregistré et permanent.
+        var persisted = true
+        /// Au moins un agent tourne encore : effet complet au prochain redémarrage.
+        var pendingReboot = false
+    }
+
+    @discardableResult
+    static func apply(_ tweak: Tweak, disable: Bool) -> ApplyOutcome {
+        var outcome = ApplyOutcome()
         var killalls = Set<String>()
         for mech in tweak.mechanisms {
             switch mech {
             case .agents(let labels):
-                for l in labels { if disable { LaunchCtl.disable(l) } else { LaunchCtl.enable(l) } }
+                for l in labels {
+                    if disable {
+                        let r = LaunchCtl.disable(l)
+                        if !r.flagged { outcome.persisted = false }
+                        if !r.stopped { outcome.pendingReboot = true }
+                    } else {
+                        LaunchCtl.enable(l)
+                    }
+                }
+            case .systemDaemons(let labels):
+                // Un seul appel privilégié pour tout le lot : une invite, pas dix.
+                let r = LaunchCtl.setSystemDaemons(labels, disabled: disable)
+                if disable {
+                    if !r.flagged { outcome.persisted = false }
+                    if !r.stopped { outcome.pendingReboot = true }
+                }
             case .defaultsKey(let domain, let key, let disabledValue, let enabledValue, let killall):
                 if disable {
                     Shell.run("/usr/bin/defaults", ["write", domain, key] + disabledValue.writeArgs)
@@ -161,11 +225,22 @@ enum Engine {
                     Shell.run("/usr/bin/defaults", ["delete", domain, key])
                 }
                 if let k = killall { killalls.insert(k) }
+            case .defaultsHostKey(let domain, let key, let disabledValue, let enabledValue, let killall):
+                let host = ["-currentHost"]
+                if disable {
+                    Shell.run("/usr/bin/defaults", host + ["write", domain, key] + disabledValue.writeArgs)
+                } else if let v = enabledValue {
+                    Shell.run("/usr/bin/defaults", host + ["write", domain, key] + v.writeArgs)
+                } else {
+                    Shell.run("/usr/bin/defaults", host + ["delete", domain, key])
+                }
+                if let k = killall { killalls.insert(k) }
             case .admin(_, let disableCmd, let enableCmd, _, _):
                 Shell.adminRun(disable ? disableCmd : enableCmd)
             }
         }
         for k in killalls { Shell.run("/usr/bin/killall", [k]) }
         DesiredState.setTweak(tweak.id, disabled: disable)
+        return outcome
     }
 }

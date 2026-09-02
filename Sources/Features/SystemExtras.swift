@@ -110,6 +110,50 @@ enum GPUInfo {
 
 // MARK: - Empêcher la mise en veille (assertion d'alimentation IOKit)
 
+/// LaunchAgent qui maintient l'anti-veille SANS MacTuner ouvert.
+///
+/// Une assertion `IOPMAssertion` ne vit que le temps du processus qui la crée :
+/// dès que MacTuner quitte, la veille revient, et un redémarrage efface tout.
+/// Pour que le réglage soit réellement permanent, on installe un agent utilisateur
+/// qui lance `/usr/bin/caffeinate -i` — exactement la même assertion, tenue par un
+/// processus que launchd relance au login et maintient en vie (`KeepAlive`).
+/// Aucun droit administrateur, entièrement réversible : l'agent est supprimé dès
+/// que l'utilisateur réactive la veille.
+enum KeepAwakeAgent {
+    static let label = "local.rodolphe.mactuner.keepawake"
+    static var plistPath: String { NSHomeDirectory() + "/Library/LaunchAgents/\(label).plist" }
+    static var installed: Bool { FileManager.default.fileExists(atPath: plistPath) }
+
+    private static let plist = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>Label</key><string>\(label)</string>
+            <key>ProgramArguments</key>
+            <array><string>/usr/bin/caffeinate</string><string>-i</string></array>
+            <key>RunAtLoad</key><true/>
+            <key>KeepAlive</key><true/>
+            <key>ProcessType</key><string>Background</string>
+        </dict>
+        </plist>
+        """
+
+    static func install() {
+        let dir = NSHomeDirectory() + "/Library/LaunchAgents"
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        guard (try? plist.write(toFile: plistPath, atomically: true, encoding: .utf8)) != nil else { return }
+        Shell.runResult("/bin/launchctl", ["bootout", "\(LaunchCtl.domain)/\(label)"])
+        Shell.runResult("/bin/launchctl", ["bootstrap", LaunchCtl.domain, plistPath])
+    }
+
+    static func remove() {
+        guard installed else { return }
+        Shell.runResult("/bin/launchctl", ["bootout", "\(LaunchCtl.domain)/\(label)"])
+        try? FileManager.default.removeItem(atPath: plistPath)
+    }
+}
+
 @MainActor
 final class KeepAwake: ObservableObject {
     static let shared = KeepAwake()
@@ -120,27 +164,37 @@ final class KeepAwake: ObservableObject {
     func toggle() { if active { stop() } else { start() } }
 
     func start() {
+        // L'agent `caffeinate` est ce qui rend le réglage permanent : il survit à la
+        // fermeture de MacTuner, à la veille et au redémarrage. L'assertion locale
+        // ci-dessous ne sert qu'à rendre l'effet immédiat, sans attendre launchd.
+        KeepAwakeAgent.install()
+        UserDefaults.standard.set(true, forKey: Self.prefKey)
+        active = true
         guard assertionID == 0 else { return }
         var id: IOPMAssertionID = 0
         let r = IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleSystemSleep as CFString,
                                             IOPMAssertionLevel(kIOPMAssertionLevelOn),
                                             "MacTuner veille desactivee" as CFString, &id)
-        if r == kIOReturnSuccess {
-            assertionID = id
-            active = true
-            UserDefaults.standard.set(true, forKey: Self.prefKey)
-        }
+        if r == kIOReturnSuccess { assertionID = id }
     }
 
     func stop() {
         if assertionID != 0 { IOPMAssertionRelease(assertionID); assertionID = 0 }
+        KeepAwakeAgent.remove()
         active = false
         UserDefaults.standard.set(false, forKey: Self.prefKey)
     }
 
-    /// Réapplique le choix de l'utilisateur au lancement de l'app (l'assertion
-    /// d'alimentation ne survit pas à la fermeture du processus, on la recrée).
+    /// Réaligne l'app sur l'état réel au lancement. L'agent `caffeinate` fait foi :
+    /// s'il est en place, l'anti-veille est déjà active, on le reflète simplement.
+    /// S'il manque alors que l'utilisateur l'avait demandé (préférences restaurées,
+    /// agent supprimé à la main), on le réinstalle.
     func restore() {
-        if UserDefaults.standard.bool(forKey: Self.prefKey) { start() }
+        let wanted = UserDefaults.standard.bool(forKey: Self.prefKey)
+        if wanted || KeepAwakeAgent.installed {
+            start()
+        } else {
+            active = false
+        }
     }
 }

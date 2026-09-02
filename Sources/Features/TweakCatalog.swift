@@ -28,7 +28,18 @@ let allTweaks: [Tweak] = [
         risk: .moyen,
         mechanisms: [.agents(["com.apple.Siri.agent", "com.apple.assistantd", "com.apple.assistant_service",
                               "com.apple.siriactionsd", "com.apple.siriknowledged", "com.apple.sirittsd",
-                              "com.apple.siriinferenced"]),
+                              "com.apple.siriinferenced",
+                              // Dépendances : gestionnaire de dialogue, détection « Dis Siri »,
+                              // intentions d'app, reconnaissance embarquée, dictée, données vocales.
+                              "com.apple.assistant_cdmd", "com.apple.corespeechd",
+                              "com.apple.siriappintentsd", "com.apple.speechmaintenanced",
+                              "com.apple.SiriTTSTrainingAgent", "com.apple.DictationIM",
+                              "com.apple.speech.speechdatainstallerd", "com.apple.campo"]),
+                     // « Dis Siri » côté système, hors session : sans lui, la détection
+                     // du mot-clé continuait de tourner malgré l'arrêt des agents.
+                     // Attention : le LABEL est « corespeechd_system » (souligné),
+                     // alors que le fichier s'appelle corespeechd.system.plist.
+                     .systemDaemons(["com.apple.corespeechd_system"]),
                      // Réglages maîtres consultés par macOS au démarrage : sans eux, les
                      // agents Siri sont ré-activés à chaque boot (self-healing).
                      .defaultsKey(domain: "com.apple.assistant.support", key: "Assistant Enabled",
@@ -50,7 +61,20 @@ let allTweaks: [Tweak] = [
                        "The features return, but the models may need to be re-downloaded (several GB) and the local knowledge base rebuilds over several days."),
         risk: .moyen,
         mechanisms: [.agents(["com.apple.intelligenceplatformd", "com.apple.generativeexperiencesd",
-                              "com.apple.knowledgeconstructiond"])]),
+                              "com.apple.knowledgeconstructiond",
+                              // Dépendances : sessions d'agent, contexte, flux, tâches,
+                              // intelligence visuelle et téléphonique, hôte des modèles.
+                              "com.apple.GenerativeFunctions.agentstored",
+                              "com.apple.intelligencecontextd", "com.apple.intelligenceflowd",
+                              "com.apple.intelligencetasksd", "com.apple.visualintelligenced",
+                              "com.apple.callintelligenced", "com.apple.mlhostd",
+                              // Analyse sémantique du texte (Outils d'écriture, résumés
+                              // de notifications, détection d'entités dans Mail).
+                              "com.apple.textunderstandingd"]),
+                     // Gestionnaire des modèles génératifs (téléchargement, mise à jour).
+                     // mlruntimed est volontairement ÉPARGNÉ : c'est le moteur ML générique,
+                     // partagé avec des fonctions non génératives (texte en direct, Photos).
+                     .systemDaemons(["com.apple.modelmanagerd"])]),
 
     Tweak(id: "proactive", name: LStr("Suggestions proactives", "Proactive suggestions"), icon: "wand.and.stars",
         group: .assistant,
@@ -65,12 +89,20 @@ let allTweaks: [Tweak] = [
                        "Learning restarts almost from scratch: expect several days of use before suggestions become relevant again."),
         risk: .faible,
         mechanisms: [.agents(["com.apple.duetexpertd", "com.apple.proactived",
-                              "com.apple.knowledge-agent", "com.apple.spotlightknowledged"])]),
+                              "com.apple.knowledge-agent", "com.apple.spotlightknowledged",
+                              // Dépendances : import et mise à jour de la base de
+                              // connaissances, suivi des événements proactifs.
+                              "com.apple.spotlightknowledged.updater",
+                              "com.apple.spotlightknowledged.importer",
+                              "com.apple.proactiveeventtrackerd"]),
+                     // CoreDuet : le moteur d'apprentissage lui-même, côté système.
+                     // Sans lui, l'apprentissage continuait malgré l'arrêt des agents.
+                     .systemDaemons(["com.apple.coreduetd"])]),
 
     Tweak(id: "suggestions", name: LStr("Suggestions Spotlight & Mail", "Spotlight & Mail suggestions"), icon: "magnifyingglass.circle.fill",
         group: .assistant,
-        what: LStr("suggestd analyse en local vos mails, messages et navigation pour en extraire contacts, événements et suggestions ; parsecd et parsec-fbf interrogent les serveurs Apple pour les suggestions Spotlight/Safari.",
-                   "suggestd analyzes your mail, messages and browsing locally to extract contacts, events and suggestions; parsecd and parsec-fbf query Apple's servers for Spotlight/Safari suggestions."),
+        what: LStr("suggestd analyse en local vos mails, messages et navigation pour en extraire contacts, événements et suggestions ; parsecd, parsec-fbf et hybridsearchd interrogent les serveurs Apple pour les suggestions Spotlight/Safari. hybridsearchd, ajouté à la chaîne, est souvent le plus gourmand en mémoire du lot.",
+                   "suggestd analyzes your mail, messages and browsing locally to extract contacts, events and suggestions; parsecd, parsec-fbf and hybridsearchd query Apple's servers for Spotlight/Safari suggestions. hybridsearchd, added to the chain, is often the most memory-hungry of the group."),
         affects: [LStr("Spotlight (résultats web)", "Spotlight (web results)"), LStr("Mail (détection contacts/événements)", "Mail (contact/event detection)"),
                   LStr("Safari (suggestions de recherche)", "Safari (search suggestions)"), LStr("Messages (suggestions)", "Messages (suggestions)"),
                   LStr("Calendrier (événements trouvés dans Mail)", "Calendar (events found in Mail)")],
@@ -79,7 +111,10 @@ let allTweaks: [Tweak] = [
         reenable: LStr("Retour immédiat des suggestions ; la détection dans Mail reprend au fil des nouveaux messages.",
                        "Suggestions return immediately; Mail detection resumes as new messages arrive."),
         risk: .moyen,
-        mechanisms: [.agents(["com.apple.suggestd", "com.apple.parsecd", "com.apple.parsec-fbf"])]),
+        mechanisms: [.agents(["com.apple.suggestd", "com.apple.parsecd", "com.apple.parsec-fbf",
+                              // Recherche hybride (résultats web dans Spotlight) : gros
+                              // consommateur mémoire, et c'est lui qui interroge Apple.
+                              "com.apple.hybridsearchd"])]),
 
     Tweak(id: "tips", name: LStr("Astuces (Tips)", "Tips"), icon: "lightbulb.circle.fill",
         group: .assistant,
@@ -109,34 +144,64 @@ let allTweaks: [Tweak] = [
     // ── Confidentialité & télémétrie ─────────────────────────────────────
     Tweak(id: "analytics", name: LStr("Télémétrie Apple", "Apple telemetry"), icon: "chart.bar.xaxis",
         group: .privacy,
-        what: LStr("Les agents qui collectent et envoient à Apple des données d'utilisation : analytique générale, analyse de la saisie clavier, analytique de géolocalisation et daemon de confidentialité publicitaire.",
-                   "The agents that collect and send usage data to Apple: general analytics, keyboard input analytics, location analytics and the ad-privacy daemon."),
+        what: LStr("Toute la chaîne de télémétrie, des deux côtés de la session : les 4 agents utilisateur qui collectent (analytique générale, saisie clavier, géolocalisation, confidentialité publicitaire) ET les 2 démons root qui agrègent et transmettent à Apple — analyticsd et osanalyticshelper. Sans ces démons, couper les seuls agents laissait la collecte de fond intacte. Le réglage « Partager les analyses du Mac » est également mis à zéro.",
+                   "The whole telemetry chain, on both sides of the session: the 4 user agents that collect (general analytics, keyboard input, location, ad privacy) AND the 2 root daemons that aggregate and transmit to Apple — analyticsd and osanalyticshelper. Without those daemons, stopping only the agents left background collection intact. The “Share Mac Analytics” setting is turned off too."),
         affects: [LStr("Aucune app visible", "No visible app"), LStr("Réglages > Confidentialité > Analyse et améliorations", "Settings > Privacy > Analytics & Improvements")],
-        breaks: LStr("Strictement rien de visible : Apple ne reçoit plus vos statistiques d'utilisation, données de saisie agrégées et signaux de localisation anonymisés. C'est la catégorie la plus sûre à désactiver.",
-                     "Nothing visible at all: Apple no longer receives your usage stats, aggregated input data and anonymized location signals. This is the safest category to disable."),
+        breaks: LStr("Strictement rien de visible : Apple ne reçoit plus vos statistiques d'utilisation, données de saisie agrégées et signaux de localisation anonymisés. C'est la catégorie la plus sûre à désactiver. Mot de passe administrateur requis pour les deux démons système.",
+                     "Nothing visible at all: Apple no longer receives your usage stats, aggregated input data and anonymized location signals. This is the safest category to disable. Administrator password required for the two system daemons."),
         reenable: LStr("La collecte reprend immédiatement, sans rattrapage des données non collectées.",
                        "Collection resumes immediately, with no catch-up of uncollected data."),
         risk: .faible,
         mechanisms: [.agents(["com.apple.analyticsagent", "com.apple.inputanalyticsd",
-                              "com.apple.geoanalyticsd", "com.apple.ap.adprivacyd"])]),
+                              "com.apple.geoanalyticsd", "com.apple.ap.adprivacyd"]),
+                     // Démons root : c'est eux qui agrègent et envoient. Les agents
+                     // seuls ne suffisaient pas, la collecte continuait hors session.
+                     .agents(["com.apple.metrickitd"]),
+                     .systemDaemons(["com.apple.analyticsd",
+                                     "com.apple.osanalytics.osanalyticshelper",
+                                     // Télémétries spécialisées, toutes optionnelles :
+                                     // temps réel, cloud, Wi-Fi, audio, écosystème,
+                                     // SQLite, USB-C, mémoire.
+                                     "com.apple.rtcreportingd", "com.apple.cloudtelemetryd",
+                                     "com.apple.wifianalyticsd", "com.apple.audioanalyticsd",
+                                     "com.apple.ecosystemanalyticsd",
+                                     "com.apple.libsqlite3.dbtelemetryd",
+                                     "com.apple.usbctelemetryd", "com.apple.memoryanalyticsd"]),
+                     // Voie documentée par Apple, celle de Réglages > Confidentialité :
+                     // AutoSubmit couvre les analyses, SeedAutoSubmit le programme bêta,
+                     // ThirdPartyDataSubmit le partage avec les développeurs tiers.
+                     .admin(label: "Partager les analyses du Mac (AutoSubmit)",
+                            disableCmd: "defaults write '/Library/Application Support/CrashReporter/DiagnosticMessagesHistory' AutoSubmit -bool false; "
+                                + "defaults write '/Library/Application Support/CrashReporter/DiagnosticMessagesHistory' SeedAutoSubmit -bool false; "
+                                + "defaults write '/Library/Application Support/CrashReporter/DiagnosticMessagesHistory' ThirdPartyDataSubmit -bool false",
+                            enableCmd: "defaults write '/Library/Application Support/CrashReporter/DiagnosticMessagesHistory' AutoSubmit -bool true; "
+                                + "defaults write '/Library/Application Support/CrashReporter/DiagnosticMessagesHistory' SeedAutoSubmit -bool true; "
+                                + "defaults write '/Library/Application Support/CrashReporter/DiagnosticMessagesHistory' ThirdPartyDataSubmit -bool true",
+                            checkCmd: "defaults read '/Library/Application Support/CrashReporter/DiagnosticMessagesHistory' AutoSubmit 2>/dev/null; "
+                                + "defaults read '/Library/Application Support/CrashReporter/DiagnosticMessagesHistory' SeedAutoSubmit 2>/dev/null; "
+                                + "defaults read '/Library/Application Support/CrashReporter/DiagnosticMessagesHistory' ThirdPartyDataSubmit 2>/dev/null",
+                            disabledMarker: "0\n0\n0")]),
 
     Tweak(id: "ads", name: LStr("Publicité personnalisée", "Personalized ads"), icon: "megaphone.fill",
         group: .privacy,
-        what: LStr("Le ciblage publicitaire d'Apple, basé sur votre profil (téléchargements App Store, lectures News, localisation grossière). Correspond au réglage « Annonces personnalisées ».",
-                   "Apple's ad targeting, based on your profile (App Store downloads, News reads, coarse location). Matches the “Personalized Ads” setting."),
+        what: LStr("Le ciblage publicitaire d'Apple, basé sur votre profil (téléchargements App Store, lectures News, localisation grossière). Le réglage « Annonces personnalisées » est coupé ET promotedcontentd, le daemon qui récupère les contenus promus, est arrêté : la clé seule le laissait interroger Apple.",
+                   "Apple's ad targeting, based on your profile (App Store downloads, News reads, coarse location). The “Personalized Ads” setting is turned off AND promotedcontentd, the daemon that fetches promoted content, is stopped: the key alone left it querying Apple."),
         affects: [LStr("App Store (annonces)", "App Store (ads)"), LStr("Apple News", "Apple News"), LStr("Bourse (annonces)", "Stocks (ads)")],
         breaks: LStr("Aucune fonctionnalité perdue : vous verrez toujours des publicités dans l'App Store et News, mais génériques au lieu d'être ciblées sur votre profil.",
                      "No feature lost: you'll still see ads in the App Store and News, but generic instead of targeted to your profile."),
         reenable: LStr("La personnalisation reprend et Apple reconstitue progressivement votre profil publicitaire.",
                        "Personalization resumes and Apple gradually rebuilds your ad profile."),
         risk: .faible,
-        mechanisms: [.defaultsKey(domain: "com.apple.AdLib", key: "allowApplePersonalizedAdvertising",
+        mechanisms: [// Le daemon qui récupère et sert les contenus promus : la clé
+                     // seule laissait le processus tourner et interroger Apple.
+                     .agents(["com.apple.ap.promotedcontentd"]),
+                     .defaultsKey(domain: "com.apple.AdLib", key: "allowApplePersonalizedAdvertising",
                                   disabledValue: .bool(false), enabledValue: .bool(true), killall: nil)]),
 
     Tweak(id: "diagnostics", name: LStr("Rapports de diagnostic", "Diagnostic reports"), icon: "stethoscope.circle.fill",
         group: .privacy,
-        what: LStr("Les agents qui compilent et envoient les rapports de plantage à Apple, et la fenêtre « L'application a quitté de manière imprévue ».",
-                   "The agents that compile and send crash reports to Apple, and the “The application quit unexpectedly” dialog."),
+        what: LStr("Les agents qui compilent les rapports de plantage, la fenêtre « L'application a quitté de manière imprévue », et surtout les 3 démons root qui envoient réellement à Apple : SubmitDiagInfo (transmission), spindump (rapports de blocage) et tailspind (traces de performance).",
+                   "The agents that compile crash reports, the “The application quit unexpectedly” dialog, and above all the 3 root daemons that actually send to Apple: SubmitDiagInfo (transmission), spindump (hang reports) and tailspind (performance traces)."),
         affects: [LStr("Fenêtre de rapport de plantage", "Crash report dialog"), LStr("Feedback Assistant", "Feedback Assistant"),
                   LStr("Console (rapports envoyés)", "Console (sent reports)"), LStr("Support Apple", "Apple Support"),
                   LStr("Développeurs d'apps tierces", "Third-party app developers")],
@@ -145,7 +210,21 @@ let allTweaks: [Tweak] = [
         reenable: LStr("Réactivation immédiate ; seuls les plantages survenus pendant la désactivation n'auront pas été transmis.",
                        "Immediate re-enable; only crashes that happened while disabled won't have been sent."),
         risk: .faible,
-        mechanisms: [.agents(["com.apple.diagnostics_agent", "com.apple.DiagnosticsReporter"]),
+        mechanisms: [.agents(["com.apple.diagnostics_agent", "com.apple.DiagnosticsReporter",
+                              // Ce sont eux qui ÉCRIVENT les rapports de plantage et de
+                              // blocage : sans eux, les fichiers continuaient d'être créés.
+                              "com.apple.ReportCrash", "com.apple.spindump_agent",
+                              "com.apple.diagnosticextensionsd"]),
+                     // Les agents préparent, ces démons transmettent : sans eux, la
+                     // désactivation ne coupait que la moitié de la chaîne.
+                     // symptomsd est volontairement ÉPARGNÉ : la pile réseau s'appuie
+                     // dessus (resource_notify), le couper dégrade la connectivité.
+                     .systemDaemons(["com.apple.SubmitDiagInfo", "com.apple.spindump",
+                                     "com.apple.tailspind", "com.apple.ReportCrash.Root",
+                                     "com.apple.diagnosticservicesd",
+                                     "com.apple.CrashReporterSupportHelper",
+                                     "com.apple.ReportMemoryException",
+                                     "com.apple.diagnosticd"]),
                      .defaultsKey(domain: "com.apple.CrashReporter", key: "DialogType",
                                   disabledValue: .string("none"), enabledValue: nil, killall: nil)]),
 
@@ -203,7 +282,9 @@ let allTweaks: [Tweak] = [
         reenable: LStr("Resynchronisation automatique de la bibliothèque, généralement en quelques minutes.",
                        "Automatic library resync, usually within minutes."),
         risk: .moyen,
-        mechanisms: [.agents(["com.apple.iTunesCloudd"])]),
+        // Le label réel est TOUT EN MINUSCULES. Avec « iTunesCloudd », launchctl
+        // acceptait la commande sans rien désactiver : le réglage n'a jamais agi.
+        mechanisms: [.agents(["com.apple.itunescloudd"])]),
 
     Tweak(id: "family", name: LStr("Partage familial", "Family Sharing"), icon: "person.3.fill",
         group: .icloud,
@@ -217,7 +298,7 @@ let allTweaks: [Tweak] = [
         reenable: LStr("Reconnexion automatique au groupe familial, généralement immédiate.",
                        "Automatic reconnection to the family group, usually instant."),
         risk: .moyen,
-        mechanisms: [.agents(["com.apple.familycircled"])]),
+        mechanisms: [.agents(["com.apple.familycircled", "com.apple.familynotificationd"])]),
 
     Tweak(id: "wallet", name: LStr("Wallet & Apple Pay", "Wallet & Apple Pay"), icon: "creditcard.fill",
         group: .icloud,
@@ -232,18 +313,55 @@ let allTweaks: [Tweak] = [
         risk: .eleve,
         mechanisms: [.agents(["com.apple.passd"])]),
 
-    Tweak(id: "sidecar", name: LStr("Sidecar & AirPlay", "Sidecar & AirPlay"), icon: "rectangle.on.rectangle",
+    Tweak(id: "sidecar", name: LStr("Sidecar, AirPlay & Continuité", "Sidecar, AirPlay & Continuity"), icon: "rectangle.on.rectangle",
         group: .icloud,
-        what: LStr("Le relais Sidecar (iPad comme second écran) et l'agent d'interface AirPlay (diffusion vers Apple TV, HomePod et téléviseurs compatibles).",
-                   "The Sidecar relay (iPad as a second display) and the AirPlay UI agent (streaming to Apple TV, HomePod and compatible TVs)."),
+        what: LStr("Le relais Sidecar (iPad comme second écran) et son relais HID, l'agent et le transport AirPlay (Apple TV, HomePod, téléviseurs), et Rapport — le lien de proximité qui détecte en permanence vos autres appareils Apple. Sans Rapport, arrêter les seuls agents laissait la découverte tourner.",
+                   "The Sidecar relay (iPad as a second display) and its HID relay, the AirPlay agent and transport (Apple TV, HomePod, TVs), and Rapport — the proximity link that continuously detects your other Apple devices. Without Rapport, stopping only the agents left discovery running."),
         affects: [LStr("Sidecar (iPad comme écran)", "Sidecar (iPad as display)"), LStr("Recopie d'écran AirPlay", "AirPlay screen mirroring"),
-                  LStr("Diffusion audio vers HomePod", "Audio streaming to HomePod"), LStr("Réglages > Écrans (option iPad)", "Settings > Displays (iPad option)")],
-        breaks: LStr("L'iPad n'apparaît plus dans Réglages > Écrans ni dans le menu de recopie. Le menu AirPlay devient incomplet : impossible d'étendre l'écran vers une Apple TV ou d'envoyer l'audio vers un HomePod depuis la barre des menus.",
-                     "The iPad no longer appears in Settings > Displays or the mirroring menu. The AirPlay menu becomes incomplete: you can't extend the display to an Apple TV or send audio to a HomePod from the menu bar."),
-        reenable: LStr("Retour immédiat de Sidecar et du menu AirPlay dès la session suivante.",
-                       "Sidecar and the AirPlay menu return immediately in the next session."),
+                  LStr("Diffusion audio vers HomePod", "Audio streaming to HomePod"), LStr("Réglages > Écrans (option iPad)", "Settings > Displays (iPad option)"),
+                  LStr("Contrôle universel", "Universal Control"), LStr("Caméra de continuité", "Continuity Camera")],
+        breaks: LStr("L'iPad n'apparaît plus dans Réglages > Écrans ni dans le menu de recopie. Le menu AirPlay devient incomplet : impossible d'étendre l'écran vers une Apple TV ou d'envoyer l'audio vers un HomePod. Rapport étant coupé, le Contrôle universel et la Caméra de continuité cessent de détecter vos appareils voisins. AirDrop et le Handoff par iCloud ne sont pas touchés.",
+                     "The iPad no longer appears in Settings > Displays or the mirroring menu. The AirPlay menu becomes incomplete: you can't extend the display to an Apple TV or send audio to a HomePod. With Rapport stopped, Universal Control and Continuity Camera stop detecting your nearby devices. AirDrop and iCloud Handoff are unaffected."),
+        reenable: LStr("Retour immédiat de Sidecar, du menu AirPlay et de la détection de proximité dès la session suivante.",
+                       "Sidecar, the AirPlay menu and proximity detection return immediately in the next session."),
         risk: .moyen,
-        mechanisms: [.agents(["com.apple.sidecar-relay", "com.apple.AirPlayUIAgent"])]),
+        mechanisms: [.agents(["com.apple.sidecar-relay", "com.apple.AirPlayUIAgent",
+                              // Dépendances : relais HID de Sidecar, Rapport (lien de
+                              // proximité avec les appareils Apple voisins).
+                              // Labels réels : le relais HID se déclare
+                              // « sidecar-display-agent », et l'agent Rapport porte le
+                              // même label que son démon, dans le domaine gui.
+                              "com.apple.sidecar-display-agent", "com.apple.rapportd",
+                              "com.apple.RapportUIAgent"]),
+                     // Côté système : le transport AirPlay et le démon Rapport, qui
+                     // maintiennent la découverte même agents arrêtés.
+                     .systemDaemons(["com.apple.AirPlayXPCHelper", "com.apple.rapportd"])]),
+
+    Tweak(id: "handoff", name: LStr("AirDrop, Handoff & Presse-papiers universel", "AirDrop, Handoff & Universal Clipboard"), icon: "arrow.left.arrow.right.circle.fill",
+        group: .icloud,
+        what: LStr("sharingd et linkd : les deux services qui annoncent en permanence ce Mac aux appareils Apple voisins, publient l'activité en cours pour Handoff et synchronisent le presse-papiers entre vos machines. Ils tournent en continu, Bluetooth et Wi-Fi allumés, même si vous n'utilisez jamais AirDrop.",
+                   "sharingd and linkd: the two services that continuously advertise this Mac to nearby Apple devices, publish the current activity for Handoff and sync the clipboard between your machines. They run continuously, with Bluetooth and Wi-Fi on, even if you never use AirDrop."),
+        affects: [LStr("AirDrop", "AirDrop"), LStr("Handoff", "Handoff"),
+                  LStr("Presse-papiers universel", "Universal Clipboard"),
+                  LStr("Partage d'écran et de fichiers", "Screen and file sharing"),
+                  LStr("Relais d'appels et SMS", "Call and SMS relay")],
+        breaks: LStr("Le Mac n'apparaît plus comme destination AirDrop sur vos iPhone et iPad, et le panneau AirDrop du Finder reste vide. Handoff cesse dans les deux sens : plus d'icône d'app reprise dans le Dock. Le presse-papiers universel ne suit plus d'un appareil à l'autre. Si vous aviez activé le partage d'écran ou de fichiers dans Réglages > Général > Partage, il devient inaccessible.",
+                     "The Mac no longer shows up as an AirDrop destination on your iPhone and iPad, and the Finder's AirDrop pane stays empty. Handoff stops both ways: no more resumed-app icon in the Dock. The universal clipboard no longer follows from one device to another. If you had enabled screen or file sharing in Settings > General > Sharing, it becomes unreachable."),
+        reenable: LStr("Tout revient dès la réactivation ; les appareils voisins peuvent mettre une minute à réapparaître le temps que l'annonce Bluetooth reprenne.",
+                       "Everything returns as soon as you re-enable it; nearby devices may take a minute to reappear while Bluetooth advertising resumes."),
+        risk: .moyen,
+        mechanisms: [.agents(["com.apple.sharingd", "com.apple.linkd"]),
+                     // Les vrais interrupteurs, ceux qui survivent à SIP : sans eux,
+                     // couper les agents ne servait à rien puisque macOS les rappelle.
+                     // Clés vérifiées dans les binaires sharingd et useractivityd.
+                     .defaultsHostKey(domain: "com.apple.coreservices.useractivityd",
+                                      key: "ActivityAdvertisingAllowed",
+                                      disabledValue: .bool(false), enabledValue: .bool(true), killall: nil),
+                     .defaultsHostKey(domain: "com.apple.coreservices.useractivityd",
+                                      key: "ActivityReceivingAllowed",
+                                      disabledValue: .bool(false), enabledValue: .bool(true), killall: nil),
+                     .defaultsKey(domain: "com.apple.NetworkBrowser", key: "DisableAirDrop",
+                                  disabledValue: .bool(true), enabledValue: .bool(false), killall: nil)]),
 
     Tweak(id: "icloudsave", name: LStr("iCloud par défaut à l'enregistrement", "iCloud as default save location"), icon: "externaldrive.fill.badge.icloud",
         group: .icloud,
@@ -288,6 +406,20 @@ let allTweaks: [Tweak] = [
         risk: .moyen,
         mechanisms: [.agents(["com.apple.weatherd", "com.apple.newsd", "com.apple.financed"])]),
 
+    Tweak(id: "gamemode", name: LStr("Mode Jeu", "Game Mode"), icon: "gamecontroller.circle.fill",
+        group: .media,
+        what: LStr("GamePolicyAgent surveille les apps lancées pour détecter un jeu et basculer alors macOS en mode Jeu : priorité CPU et GPU au jeu, et doublement de la fréquence de communication des manettes et écouteurs Bluetooth. L'agent tourne en permanence, y compris sur un Mac qui ne sert jamais à jouer.",
+                   "GamePolicyAgent watches launched apps to detect a game and then switch macOS into Game Mode: CPU and GPU priority to the game, and doubled Bluetooth polling for controllers and headphones. The agent runs continuously, including on a Mac never used for gaming."),
+        affects: [LStr("Mode Jeu", "Game Mode"), LStr("Priorité CPU/GPU des jeux", "Game CPU/GPU priority"),
+                  LStr("Latence des manettes Bluetooth", "Bluetooth controller latency"),
+                  LStr("Latence des AirPods en jeu", "AirPods latency while gaming")],
+        breaks: LStr("Le mode Jeu ne s'active plus : les jeux tournent avec la priorité normale et la latence Bluetooth des manettes et AirPods reste standard. Sur un Mac qui ne sert pas à jouer, aucune conséquence perceptible ; sur un Mac de jeu, quelques images par seconde et un peu de latence en plus.",
+                     "Game Mode no longer engages: games run at normal priority and Bluetooth latency for controllers and AirPods stays standard. On a Mac not used for gaming, no noticeable consequence; on a gaming Mac, a few frames per second and a little extra latency."),
+        reenable: LStr("Le mode Jeu redevient disponible au prochain lancement d'un jeu.",
+                       "Game Mode becomes available again the next time a game launches."),
+        risk: .faible,
+        mechanisms: [.agents(["com.apple.GamePolicyAgent"])]),
+
     Tweak(id: "gamecenter", name: LStr("Game Center", "Game Center"), icon: "gamecontroller.fill",
         group: .media,
         what: LStr("Le daemon Game Center : profil joueur, classements, succès, invitations et matchmaking multijoueur.",
@@ -299,7 +431,7 @@ let allTweaks: [Tweak] = [
         reenable: LStr("Reconnexion automatique au profil joueur ; les succès débloqués hors ligne se resynchronisent.",
                        "Automatic reconnection to the player profile; achievements earned offline resync."),
         risk: .faible,
-        mechanisms: [.agents(["com.apple.gamed"])]),
+        mechanisms: [.agents(["com.apple.gamed", "com.apple.gamesaved"])]),
 
     Tweak(id: "music", name: LStr("Agents Musique & TV", "Music & TV agents"), icon: "music.note.list",
         group: .media,
@@ -312,8 +444,29 @@ let allTweaks: [Tweak] = [
         reenable: LStr("Les pochettes se retéléchargent et la détection d'appareils revient immédiatement.",
                        "Artwork re-downloads and device detection returns immediately."),
         risk: .moyen,
+        // videosubscriptionsd gère les abonnements Apple TV : inclus ici car il
+        // appartient à la même pile média et tourne pour rien sans Apple TV.
         mechanisms: [.agents(["com.apple.AMPArtworkAgent", "com.apple.AMPLibraryAgent",
-                              "com.apple.AMPDeviceDiscoveryAgent"])]),
+                              "com.apple.AMPDeviceDiscoveryAgent",
+                              // Dépendances : appareils, lecteur système, partage à
+                              // domicile, abonnements vidéo (Apple TV).
+                              "com.apple.AMPDevicesAgent", "com.apple.AMPSystemPlayerAgent",
+                              "com.apple.amp.mediasharingd", "com.apple.videosubscriptionsd"])]),
+
+    Tweak(id: "screenrecord", name: LStr("Moteur d'enregistrement d'écran", "Screen recording engine"), icon: "record.circle",
+        group: .media,
+        what: LStr("replayd est le service ReplayKit : il encode l'écran et le son pour l'enregistrement et la diffusion. Il est réveillé par la barre de capture (⌘⇧5), par le partage d'écran de FaceTime et par les apps qui diffusent, et reste ensuite en mémoire.",
+                   "replayd is the ReplayKit service: it encodes screen and audio for recording and broadcasting. It is woken by the capture bar (⌘⇧5), by FaceTime screen sharing and by broadcasting apps, and then stays in memory."),
+        affects: [LStr("Enregistrement d'écran (⌘⇧5)", "Screen recording (⌘⇧5)"),
+                  LStr("Partage d'écran FaceTime", "FaceTime screen sharing"),
+                  LStr("Diffusion depuis les apps", "In-app broadcasting"),
+                  LStr("QuickTime (enregistrement d'écran)", "QuickTime (screen recording)")],
+        breaks: LStr("L'enregistrement vidéo de l'écran échoue : la barre ⌘⇧5 s'ouvre toujours et la capture d'IMAGE fixe continue de fonctionner, mais lancer un enregistrement ne produit aucun fichier. Le partage d'écran pendant un appel FaceTime et la diffusion depuis les apps cessent également.",
+                     "Screen video recording fails: the ⌘⇧5 bar still opens and still SCREENSHOTS fine, but starting a recording produces no file. Screen sharing during a FaceTime call and in-app broadcasting also stop."),
+        reenable: LStr("L'enregistrement redevient disponible immédiatement, sans réglage à refaire.",
+                       "Recording becomes available again immediately, with no setting to redo."),
+        risk: .moyen,
+        mechanisms: [.agents(["com.apple.replayd"])]),
 
     Tweak(id: "memoji", name: LStr("Memoji (avatars)", "Memoji (avatars)"), icon: "face.smiling.fill",
         group: .media,
@@ -340,7 +493,8 @@ let allTweaks: [Tweak] = [
         reenable: LStr("L'app Maison se resynchronise depuis iCloud, généralement en moins d'une minute.",
                        "The Home app resyncs from iCloud, usually in under a minute."),
         risk: .eleve,
-        mechanisms: [.agents(["com.apple.homed"])]),
+        mechanisms: [.agents(["com.apple.homed", "com.apple.homeenergyd",
+                              "com.apple.homeeventsd"])]),
 
     Tweak(id: "callhistory", name: LStr("Historique d'appels iPhone", "iPhone call history"), icon: "phone.fill",
         group: .media,
@@ -353,7 +507,10 @@ let allTweaks: [Tweak] = [
         reenable: LStr("L'historique se resynchronise depuis l'iPhone à la prochaine connexion.",
                        "History resyncs from the iPhone at the next connection."),
         risk: .faible,
-        mechanisms: [.agents(["com.apple.CallHistoryPluginHelper", "com.apple.CallHistorySyncHelper"])]),
+        // callservicesd est volontairement ÉPARGNÉ : il gère aussi FaceTime et les
+        // appels passés depuis le Mac, pas seulement l'historique.
+        mechanisms: [.agents(["com.apple.CallHistoryPluginHelper", "com.apple.CallHistorySyncHelper",
+                              "com.apple.callhistoryd"])]),
 
     Tweak(id: "imagecapture", name: LStr("Ouverture auto de Photos", "Auto-open Photos"), icon: "camera.fill",
         group: .media,
@@ -381,6 +538,21 @@ let allTweaks: [Tweak] = [
         mechanisms: [.agents(["com.apple.TMHelperAgent"])]),
 
     // ── Interface & confort ──────────────────────────────────────────────
+    Tweak(id: "widgetengine", name: LStr("Moteur des widgets", "Widget engine"), icon: "square.grid.2x2.fill",
+        group: .ui,
+        what: LStr("chronod héberge et rafraîchit tous les widgets — ceux du Centre de notifications, ceux posés sur le bureau — ainsi que les activités en direct. Il réveille périodiquement chaque extension de widget pour en redemander le contenu, même quand aucun widget n'est visible à l'écran.",
+                   "chronod hosts and refreshes every widget — those in Notification Centre and those placed on the desktop — as well as Live Activities. It periodically wakes each widget extension to ask for fresh content, even when no widget is visible on screen."),
+        affects: [LStr("Widgets du bureau", "Desktop widgets"),
+                  LStr("Widgets du Centre de notifications", "Notification Centre widgets"),
+                  LStr("Activités en direct", "Live Activities"),
+                  LStr("Widgets d'apps tierces", "Third-party app widgets")],
+        breaks: LStr("Les widgets cessent de se mettre à jour puis disparaissent ou restent figés sur leur dernier contenu, sur le bureau comme dans le Centre de notifications. Les activités en direct (minuteur, suivi de livraison) ne s'affichent plus. Le reste du Centre de notifications — les notifications elles-mêmes — n'est pas touché.",
+                     "Widgets stop updating, then vanish or freeze on their last content, both on the desktop and in Notification Centre. Live Activities (timers, delivery tracking) no longer appear. The rest of Notification Centre — the notifications themselves — is unaffected."),
+        reenable: LStr("Les widgets se rechargent seuls en quelques secondes. Ceux qui avaient été retirés du bureau doivent être replacés à la main.",
+                       "Widgets reload on their own within seconds. Any that were removed from the desktop must be placed again by hand."),
+        risk: .faible,
+        mechanisms: [.agents(["com.apple.chronod"])]),
+
     Tweak(id: "animations", name: LStr("Animations de fenêtres", "Window animations"), icon: "wand.and.rays",
         group: .ui,
         what: LStr("Les animations d'ouverture/fermeture des fenêtres et le temps d'animation du redimensionnement des boîtes de dialogue (0,2 s par défaut, réduit à 0,001 s). L'interface paraît plus réactive.",
@@ -474,7 +646,12 @@ let allTweaks: [Tweak] = [
         risk: .eleve,
         mechanisms: [.admin(label: "mdutil : indexation de tous les volumes",
                             disableCmd: "mdutil -a -i off", enableCmd: "mdutil -a -i on",
-                            checkCmd: "mdutil -s /", disabledMarker: "disabled")]),
+                            checkCmd: "mdutil -s /", disabledMarker: "disabled"),
+                     // corespotlightd sert l'index CoreSpotlight des apps (Mail, Notes,
+                     // Messages), distinct de l'index de fichiers géré par mdutil : il
+                     // reste sollicité même indexation coupée. C'est le seul mécanisme
+                     // de cette fiche que SIP peut rendre inopérant.
+                     .agents(["com.apple.corespotlightd"])]),
 
     Tweak(id: "powernap", name: LStr("Power Nap", "Power Nap"), icon: "bolt.fill",
         group: .system,

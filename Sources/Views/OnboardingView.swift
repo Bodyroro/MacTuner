@@ -65,10 +65,23 @@ struct OnboardingView: View {
                             .disabled(model.testingAdmin)
                     } else {
                         Button(loc.t("onb.admin.verify")) { model.installPersistent() }
-                            .disabled(model.testingAdmin)
+                            .disabled(model.testingAdmin || model.trustIssue != nil)
                     }
                     if model.testingAdmin { ProgressView().controlSize(.small) }
                 }
+            }
+
+            if let issue = model.trustIssue, !model.adminPersistent {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "exclamationmark.shield.fill").foregroundStyle(MTColor.ambre)
+                    Text(issue).font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(MTColor.ambre.opacity(0.10)))
             }
 
             Divider()
